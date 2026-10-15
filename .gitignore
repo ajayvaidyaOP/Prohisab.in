@@ -1,0 +1,29 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+coverage/
+*.log
+npm-debug.log*
+
+# Secrets and local environment files (never commit)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local editor / OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local database dumps and data directories
+*.sql.gz
+*.dump
+mysql-data/
+
+# Generated Prisma client is rebuilt by `npm run prisma:generate` on install
+# (kept out of Git to avoid platform-specific engine files)
+backend/src/generated/

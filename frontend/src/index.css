@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+/* Print: statements and ledgers print on paper without navigation or buttons. */
+@media print {
+  @page { margin: 14mm; }
+  html, body { background: #fff !important; }
+  .print\:hidden { display: none !important; }
+  .print-break-inside-avoid { break-inside: avoid; }
+  table { font-size: 11px; }
+  a[href]::after { content: none !important; }
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
