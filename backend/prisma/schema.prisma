@@ -1,0 +1,160 @@
+// Prisma schema for the Simple Ledger ERP (MySQL only).
+// Money columns use MySQL DECIMAL(15,2). Never use Float/Double for money.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum AccountType {
+  CUSTOMER
+  SUPPLIER
+}
+
+enum BalanceSide {
+  RECEIVABLE
+  PAYABLE
+}
+
+enum EntryDirection {
+  INCREASE
+  DECREASE
+}
+
+enum TransactionType {
+  CREDIT_SALE
+  PAYMENT_RECEIVED
+  CUSTOMER_CREDIT_ADJUSTMENT
+  CREDIT_PURCHASE
+  PAYMENT_MADE
+  SUPPLIER_CREDIT_ADJUSTMENT
+  REVERSAL
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  BANK_TRANSFER
+  OTHER
+}
+
+enum IdempotencyStatus {
+  PROCESSING
+  COMPLETED
+}
+
+model AdminUser {
+  id                   Int           @id @default(autoincrement())
+  username             String        @unique @db.VarChar(64)
+  passwordHash         String        @db.VarChar(255)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  sessions             Session[]
+  auditLogs            AuditLog[]
+  createdLedgerEntries LedgerEntry[] @relation("LedgerCreatedBy")
+}
+
+model Session {
+  id          String    @id @db.VarChar(64) // SHA-256 hex of the random session token; the raw token is never stored
+  adminUserId Int
+  adminUser   AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  createdAt   DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  expiresAt   DateTime
+  userAgent   String?   @db.VarChar(255)
+
+  @@index([adminUserId])
+  @@index([expiresAt])
+}
+
+model Account {
+  id                 Int           @id @default(autoincrement())
+  accountCode        String        @unique @db.VarChar(20)
+  name               String        @db.VarChar(150)
+  type               AccountType
+  phone              String?       @db.VarChar(30)
+  email              String?       @db.VarChar(190)
+  address            String?       @db.Text
+  openingBalance     Decimal       @default(0) @db.Decimal(15, 2)
+  openingBalanceSide BalanceSide
+  notes              String?       @db.Text
+  isActive           Boolean       @default(true)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  ledgerEntries      LedgerEntry[]
+
+  @@index([type, isActive])
+  @@index([name])
+}
+
+model LedgerEntry {
+  id              Int             @id @default(autoincrement())
+  accountId       Int
+  account         Account         @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  entryDate       DateTime        @db.Date
+  type            TransactionType
+  side            BalanceSide
+  direction       EntryDirection
+  amount          Decimal         @db.Decimal(15, 2)
+  paymentMethod   PaymentMethod?
+  referenceNumber String?         @db.VarChar(100)
+  notes           String?         @db.VarChar(500)
+  reversalOfId    Int?            @unique
+  reversalOf      LedgerEntry?    @relation("LedgerReversal", fields: [reversalOfId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reversedBy      LedgerEntry?    @relation("LedgerReversal")
+  createdById     Int?
+  createdBy       AdminUser?      @relation("LedgerCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdAt       DateTime        @default(now())
+
+  @@index([accountId, entryDate, id])
+  @@index([entryDate, type])
+  @@index([side, direction, entryDate])
+  @@index([type, entryDate])
+  @@index([referenceNumber])
+  @@index([createdById])
+}
+
+model AuditLog {
+  id         Int        @id @default(autoincrement())
+  action     String     @db.VarChar(80)
+  entityType String     @db.VarChar(60)
+  entityId   String     @db.VarChar(60)
+  actorId    Int?
+  actor      AdminUser? @relation(fields: [actorId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  details    Json?
+  createdAt  DateTime   @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([actorId])
+}
+
+model IdempotencyKey {
+  id             Int               @id @default(autoincrement())
+  scope          String            @db.VarChar(120)
+  keyHash        String            @db.VarChar(64)
+  requestHash    String            @db.VarChar(64)
+  status         IdempotencyStatus
+  responseStatus Int?
+  responseBody   Json?
+  createdAt      DateTime          @default(now())
+  expiresAt      DateTime
+
+  @@unique([scope, keyHash])
+  @@index([expiresAt])
+}
+
+model AppSetting {
+  id              Int      @id @default(1)
+  businessName    String   @default("My Business") @db.VarChar(150)
+  businessAddress String?  @db.Text
+  businessPhone   String?  @db.VarChar(30)
+  businessEmail   String?  @db.VarChar(190)
+  currencySymbol  String   @default("₹") @db.VarChar(8)
+  timezone        String   @default("Asia/Kolkata") @db.VarChar(64)
+  updatedAt       DateTime @updatedAt
+}
