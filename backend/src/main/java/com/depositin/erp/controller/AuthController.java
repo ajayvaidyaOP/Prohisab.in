@@ -42,14 +42,29 @@ public class AuthController {
         return new CommonDtos.AuthUserResponse(result.user());
     }
 
+    @PostMapping("/pin-login")
+    public CommonDtos.AuthUserResponse pinLogin(@Valid @RequestBody CommonDtos.PinLoginRequest request,
+                                                HttpServletRequest httpRequest,
+                                                HttpServletResponse httpResponse) {
+        String ip = clientIp(httpRequest);
+        String userAgent = httpRequest.getHeader("User-Agent");
+        AuthService.LoginResult result = auth.loginByPin(request, ip, userAgent);
+        sessions.writeCookie(httpResponse, result.token());
+        return new CommonDtos.AuthUserResponse(result.user());
+    }
+
     /**
      * Password change is completely unavailable: users must ask the admin to
      * reset their password. This endpoint exists only to give a clear error.
      */
     @PostMapping("/change-password")
-    public void changePassword() {
-        throw new ApiException(ErrorCode.PASSWORD_CHANGE_DISABLED,
-                "Password changes are disabled. Ask the Administrator to reset your password.");
+    public void changePassword(@Valid @RequestBody CommonDtos.ChangePasswordRequest request) {
+        CurrentUser current = SecurityUtils.requireUser();
+        if (!current.isAdmin()) {
+            throw new ApiException(ErrorCode.PASSWORD_CHANGE_DISABLED,
+                    "Password changes are disabled. Ask the Administrator to reset your password.");
+        }
+        auth.changePassword(current.id(), request);
     }
 
     @PostMapping("/logout")

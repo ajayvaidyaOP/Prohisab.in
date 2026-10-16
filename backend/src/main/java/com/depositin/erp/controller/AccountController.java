@@ -6,6 +6,8 @@ import com.depositin.erp.security.SecurityUtils;
 import com.depositin.erp.service.LedgerService;
 import com.depositin.erp.service.UserService;
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -84,6 +86,19 @@ public class AccountController {
     public void resetPassword(@PathVariable Long id, @Valid @RequestBody AccountDtos.ResetPasswordRequest request) {
         CurrentUser admin = SecurityUtils.requireAdmin();
         userService.resetPassword(id, request, userService.requireUser(admin.id()));
+    }
+
+    @PutMapping("/{id}/books")
+    public AccountDtos.AccountResponse setBooks(@PathVariable Long id, @RequestBody List<Long> bookIds) {
+        CurrentUser admin = SecurityUtils.requireAdmin();
+        return new AccountDtos.AccountResponse(userService.setAllowedBooks(id, bookIds, userService.requireUser(admin.id())));
+    }
+
+    @PatchMapping("/{id}/back-date")
+    public AccountDtos.AccountResponse setBackDate(@PathVariable Long id, @RequestBody Map<String, Boolean> body) {
+        CurrentUser admin = SecurityUtils.requireAdmin();
+        boolean allowed = Boolean.TRUE.equals(body.get("allowed"));
+        return new AccountDtos.AccountResponse(userService.setBackDateEntry(id, allowed, userService.requireUser(admin.id())));
     }
 
     private void requireVisible(Long id, CurrentUser viewer) {

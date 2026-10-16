@@ -33,6 +33,10 @@ public final class TransactionDtos {
             String amount,
             String option,
             String detail,
+            Long bookId,
+            String bookName,
+            String customerId,
+            String bankDetails,
             String description,
             String paymentMethod,
             String paymentMethodLabel,
@@ -66,6 +70,9 @@ public final class TransactionDtos {
             @JsonAlias({"description"}) @Size(max = 500) String detail,
             @Size(max = 20) String paymentMethod,
             @Size(max = 100) String referenceNumber,
+            Long bookId,
+            @Size(max = 60) String customerId,
+            @Size(max = 255) String bankDetails,
             // Legacy compatibility: combined notes field (option — detail) when option/detail are not sent.
             @Size(max = 500) String notes) {
     }

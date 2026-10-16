@@ -69,7 +69,8 @@ public final class AccountDtos {
      */
     public record CreateAccountRequest(
             @NotBlank(message = "Name is required.") @Size(min = 2, max = 150, message = "Name must be 2-150 characters.") String name,
-            @NotBlank(message = "Password is required.") @Size(max = 100, message = "Password must be 100 characters or fewer.") String password) {
+            @NotBlank(message = "Password is required.") @Size(max = 100, message = "Password must be 100 characters or fewer.") String password,
+            @Size(min = 4, max = 10, message = "PIN must be 4-10 digits.") String pin) {
     }
 
     public record UpdateAccountRequest(

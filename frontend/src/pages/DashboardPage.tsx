@@ -57,6 +57,8 @@ export default function DashboardPage() {
 
   // PDF Download States (All Users Summary PDF + Month Filter in Bottom Table)
   const [pdfPeriod, setPdfPeriod] = useState<'ALL' | 'THIS_MONTH' | 'LAST_MONTH'>('ALL');
+  const [pdfFrom, setPdfFrom] = useState('');
+  const [pdfTo, setPdfTo] = useState('');
   const [downloadingPdfId, setDownloadingPdfId] = useState<number | null>(null);
   const [downloadingSummaryPdf, setDownloadingSummaryPdf] = useState(false);
 
@@ -161,7 +163,7 @@ export default function DashboardPage() {
   const handleDownloadSummaryPdf = async () => {
     try {
       setDownloadingSummaryPdf(true);
-      await api.ledger.downloadAllUsersSummaryPdf();
+      await api.ledger.downloadAllUsersSummaryPdf({ from: pdfFrom || undefined, to: pdfTo || undefined });
     } catch (err) {
       setErrorMessage(err instanceof ApiError ? err.message : 'Could not download All Users Summary PDF.');
     } finally {
@@ -315,8 +317,26 @@ export default function DashboardPage() {
       {flashMessage ? <Alert tone="success">{flashMessage}</Alert> : null}
       {errorMessage ? <Alert tone="error">{errorMessage}</Alert> : null}
 
+      <Card>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-[140px]">
+            <Field label="From Date">
+              {(id) => <TextInput id={id} type="date" value={pdfFrom} onChange={(e) => setPdfFrom(e.target.value)} />}
+            </Field>
+          </div>
+          <div className="min-w-[140px]">
+            <Field label="To Date">
+              {(id) => <TextInput id={id} type="date" value={pdfTo} onChange={(e) => setPdfTo(e.target.value)} />}
+            </Field>
+          </div>
+          <Button variant="secondary" loading={downloadingSummaryPdf} onClick={() => void handleDownloadSummaryPdf()}>
+            <FileDown className="h-3.5 w-3.5" /> Print / Save PDF Report
+          </Button>
+        </div>
+      </Card>
+
       {/* 4 Summary Cards (Deposit & Withdrawal) */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
         <Card className="border-l-4 border-l-emerald-600">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Total Deposits (+ Approved)
@@ -362,6 +382,30 @@ export default function DashboardPage() {
           </div>
           <div className="mt-1 text-xs text-slate-500">
             {totals.pendingSubmissionsCount ?? 0} Deposit / Withdrawal {(totals.pendingSubmissionsCount ?? 0) === 1 ? 'request' : 'requests'} waiting
+          </div>
+        </Card>
+
+        <Card className="border-l-4 border-l-slate-500">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Total Entries
+          </div>
+          <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-slate-700">
+            {data.counts.ledgerEntries ?? 0}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            All deposit / withdrawal entries
+          </div>
+        </Card>
+
+        <Card className="border-l-4 border-l-sky-500">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Users
+          </div>
+          <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-sky-700">
+            {data.counts.totalUsers ?? 0}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            {data.counts.activeUsers ?? 0} active
           </div>
         </Card>
       </div>

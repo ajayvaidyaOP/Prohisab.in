@@ -3,6 +3,8 @@ package com.depositin.erp.service;
 import com.depositin.erp.dto.AccountDtos;
 import com.depositin.erp.entity.UserAccount;
 import com.depositin.erp.entity.UserRole;
+import com.depositin.erp.entity.Book;
+import com.depositin.erp.repository.BookRepository;
 import com.depositin.erp.exception.ApiException;
 import com.depositin.erp.exception.ErrorCode;
 import com.depositin.erp.repository.UserRepository;
@@ -12,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -27,10 +30,12 @@ public class UserService {
     private final AuditService audit;
     private final LedgerService ledger;
     private final SessionService sessions;
+    private final BookRepository books;
 
     public UserService(UserRepository users, AuthService auth, AuditService audit,
-                       LedgerService ledger, SessionService sessions) {
+                       LedgerService ledger, SessionService sessions, BookRepository books) {
         this.users = users;
+        this.books = books;
         this.auth = auth;
         this.audit = audit;
         this.ledger = ledger;
@@ -55,6 +60,9 @@ public class UserService {
         user.setName(name);
         user.setNameNormalized(normalized);
         user.setPasswordHash(auth.passwordEncoder().encode(request.password()));
+        if (request.pin() != null && !request.pin().isBlank()) {
+            user.setPin(request.pin().trim());
+        }
         user.setRole(UserRole.USER);
         user.setAccountCode("USR-" + String.format("%06d", 1)); // provisional; replaced below
         user.setActive(true);
@@ -146,6 +154,29 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
+    @Transactional
+    public AccountDtos.AccountSummary setAllowedBooks(Long id, List<Long> bookIds, UserAccount actor) {
+        UserAccount user = requireUser(id);
+        user.getAllowedBooks().clear();
+        if (bookIds != null) {
+            for (Long bid : bookIds) {
+                books.findById(bid).ifPresent(user.getAllowedBooks()::add);
+            }
+        }
+        users.save(user);
+        audit.record("USER_BOOKS_UPDATED", "User", user.getId(), actor, Map.of("bookIds", bookIds == null ? List.of() : bookIds));
+        return ledger.summarize(user);
+    }
+
+    @Transactional
+    public AccountDtos.AccountSummary setBackDateEntry(Long id, boolean allowed, UserAccount actor) {
+        UserAccount user = requireUser(id);
+        user.setBackDateEntry(allowed);
+        users.save(user);
+        audit.record("USER_BACKDATE_UPDATED", "User", user.getId(), actor, Map.of("allowed", allowed));
+        return ledger.summarize(user);
+    }
+
     public UserAccount requireUser(Long id) {
         return users.findById(id).orElseThrow(() -> ApiException.notFound("User account not found."));
     }

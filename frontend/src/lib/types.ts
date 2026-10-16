@@ -216,6 +216,7 @@ export interface SettingsView {
     businessEmail: string | null;
     currencySymbol: string;
     timezone: string;
+    logoUrl?: string | null;
     userEntryOptions?: string[];
     updatedAt: string;
   };

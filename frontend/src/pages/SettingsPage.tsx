@@ -65,6 +65,8 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <PageHeader title="Settings" description={`Signed in as ${s.user.username}. You are signed out automatically after ${s.session.idleTimeoutMinutes} minutes without activity.`} />
 
+      <PasswordForm />
+
       <div className="grid gap-6 xl:grid-cols-2">
         <BusinessForm
           key={JSON.stringify(s.business)}
@@ -151,12 +153,55 @@ function AuditDetail({ details }: { details: unknown }) {
   return <p className="text-xs text-slate-500">{parts.join(' · ')}</p>;
 }
 
+
+function PasswordForm() {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const save = useMutation({
+    mutationFn: () => api.auth.changePassword({ currentPassword: current, newPassword: next, confirmPassword: confirm }),
+    onSuccess: () => { setError(null); setSaved(true); setCurrent(''); setNext(''); setConfirm(''); },
+    onError: (e) => { setSaved(false); setError(e instanceof ApiError ? e.message : 'Could not change password.'); },
+  });
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    setError(null); setSaved(false);
+    if (!current || !next || !confirm) { setError('All fields are required.'); return; }
+    if (next !== confirm) { setError('New passwords do not match.'); return; }
+    save.mutate();
+  };
+  return (
+    <Card>
+      <h2 className="mb-1 text-base font-semibold text-slate-900">Change Admin Password</h2>
+      <p className="mb-4 text-sm text-slate-600">Enter your current password to set a new one.</p>
+      <form className="space-y-4" onSubmit={submit} noValidate>
+        {error && <Alert tone="error">{error}</Alert>}
+        {saved && <Alert tone="success">Password changed.</Alert>}
+        <Field label="Current Password" required>
+          {(id) => <TextInput id={id} type="password" value={current} onChange={(e) => setCurrent(e.target.value)} />}
+        </Field>
+        <Field label="New Password" required>
+          {(id) => <TextInput id={id} type="password" value={next} onChange={(e) => setNext(e.target.value)} />}
+        </Field>
+        <Field label="Confirm New Password" required>
+          {(id) => <TextInput id={id} type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />}
+        </Field>
+        <div className="flex justify-end">
+          <Button type="submit" loading={save.isPending}>Change Password</Button>
+        </div>
+      </form>
+    </Card>
+  );
+}
+
 function BusinessForm({
   initial,
   timezones,
   onSaved,
 }: {
-  initial: { businessName: string; businessAddress: string | null; businessPhone: string | null; businessEmail: string | null; currencySymbol: string; timezone: string };
+  initial: { businessName: string; businessAddress: string | null; businessPhone: string | null; businessEmail: string | null; currencySymbol: string; timezone: string; logoUrl?: string | null };
   timezones: string[];
   onSaved: () => void;
 }) {
@@ -167,6 +212,7 @@ function BusinessForm({
     businessEmail: initial.businessEmail ?? '',
     currencySymbol: initial.currencySymbol,
     timezone: initial.timezone,
+    logoUrl: initial.logoUrl ?? '',
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
@@ -181,6 +227,7 @@ function BusinessForm({
         businessEmail: form.businessEmail.trim() || null,
         currencySymbol: form.currencySymbol.trim(),
         timezone: form.timezone,
+        logoUrl: form.logoUrl.trim() || null,
       }),
     onSuccess: () => {
       setErrors({});
@@ -230,6 +277,9 @@ function BusinessForm({
           </Field>
           <Field label="Email" error={errors.businessEmail}>
             {(id, describedBy) => <TextInput id={id} type="email" value={form.businessEmail} onChange={(e) => set('businessEmail', e.target.value)} maxLength={190} aria-describedby={describedBy} />}
+          </Field>
+          <Field label="Logo URL" error={errors.logoUrl}>
+            {(id, describedBy) => <TextInput id={id} value={form.logoUrl} onChange={(e) => set('logoUrl', e.target.value)} maxLength={500} aria-describedby={describedBy} placeholder="https://..." />}
           </Field>
           <Field label="Currency symbol" required error={errors.currencySymbol}>
             {(id, describedBy) => <TextInput id={id} value={form.currencySymbol} onChange={(e) => set('currencySymbol', e.target.value)} maxLength={8} aria-describedby={describedBy} invalid={!!errors.currencySymbol} />}

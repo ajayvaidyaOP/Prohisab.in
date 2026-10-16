@@ -10,6 +10,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.JoinColumn;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -55,6 +56,19 @@ public class LedgerTransaction {
     /** Optional free-text remark. */
     @Column(name = "detail", length = 500)
     private String detail;
+
+    /** Book (website/ledger) this entry belongs to. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "book_id")
+    private Book book;
+
+    /** Customer / User ID entered by staff. */
+    @Column(name = "customer_id", length = 60)
+    private String customerId;
+
+    /** Bank account details entered by staff. */
+    @Column(name = "bank_details", length = 255)
+    private String bankDetails;
 
     @Column(name = "reference_number", length = 100)
     private String referenceNumber;
@@ -175,6 +189,30 @@ public class LedgerTransaction {
 
     public void setDetail(String detail) {
         this.detail = detail;
+    }
+
+    public Book getBook() {
+        return book;
+    }
+
+    public void setBook(Book book) {
+        this.book = book;
+    }
+
+    public String getCustomerId() {
+        return customerId;
+    }
+
+    public void setCustomerId(String customerId) {
+        this.customerId = customerId;
+    }
+
+    public String getBankDetails() {
+        return bankDetails;
+    }
+
+    public void setBankDetails(String bankDetails) {
+        this.bankDetails = bankDetails;
     }
 
     public String getReferenceNumber() {

@@ -29,6 +29,9 @@ public class AppSetting {
     @Column(name = "business_email", length = 190)
     private String businessEmail;
 
+    @Column(name = "logo_url", length = 500)
+    private String logoUrl;
+
     @Column(name = "currency_symbol", nullable = false, length = 8)
     private String currencySymbol = "₹";
 
@@ -88,6 +91,14 @@ public class AppSetting {
 
     public void setBusinessEmail(String businessEmail) {
         this.businessEmail = businessEmail;
+    }
+
+    public String getLogoUrl() {
+        return logoUrl;
+    }
+
+    public void setLogoUrl(String logoUrl) {
+        this.logoUrl = logoUrl;
     }
 
     public String getCurrencySymbol() {

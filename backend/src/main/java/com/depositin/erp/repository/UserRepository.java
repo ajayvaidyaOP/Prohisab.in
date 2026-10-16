@@ -11,6 +11,8 @@ public interface UserRepository extends JpaRepository<UserAccount, Long> {
 
     Optional<UserAccount> findByNameNormalized(String nameNormalized);
 
+    Optional<UserAccount> findByPin(String pin);
+
     boolean existsByNameNormalized(String nameNormalized);
 
     boolean existsByNameNormalizedAndIdNot(String nameNormalized, Long id);

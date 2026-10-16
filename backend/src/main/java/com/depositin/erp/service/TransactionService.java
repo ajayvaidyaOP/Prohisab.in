@@ -8,6 +8,8 @@ import com.depositin.erp.entity.LedgerTransaction;
 import com.depositin.erp.entity.TransactionKind;
 import com.depositin.erp.entity.UserAccount;
 import com.depositin.erp.entity.UserRole;
+import com.depositin.erp.entity.Book;
+import com.depositin.erp.repository.BookRepository;
 import com.depositin.erp.exception.ApiException;
 import com.depositin.erp.exception.ErrorCode;
 import com.depositin.erp.repository.LedgerTransactionRepository;
@@ -36,6 +38,7 @@ import java.util.Map;
 public class TransactionService {
 
     private final LedgerTransactionRepository transactions;
+    private final BookRepository books;
     private final UserRepository users;
     private final LedgerService ledger;
     private final EntryOptionService entryOptions;
@@ -43,10 +46,11 @@ public class TransactionService {
     private final DateService dates;
     private final AuditService audit;
 
-    public TransactionService(LedgerTransactionRepository transactions, UserRepository users,
+    public TransactionService(LedgerTransactionRepository transactions, BookRepository books, UserRepository users,
                               LedgerService ledger, EntryOptionService entryOptions,
                               MoneyService money, DateService dates, AuditService audit) {
         this.transactions = transactions;
+        this.books = books;
         this.users = users;
         this.ledger = ledger;
         this.entryOptions = entryOptions;
@@ -113,6 +117,11 @@ public class TransactionService {
         entry.setAmount(amount);
         entry.setOptionName(option);
         entry.setDetail(detail);
+        if (request.bookId() != null) {
+            books.findById(request.bookId()).ifPresent(entry::setBook);
+        }
+        entry.setCustomerId(blankToNull(request.customerId()));
+        entry.setBankDetails(blankToNull(request.bankDetails()));
         entry.setReferenceNumber(blankToNull(request.referenceNumber()));
         entry.setPaymentMethod(blankToNull(request.paymentMethod()) == null ? null
                 : blankToNull(request.paymentMethod()).toUpperCase());
@@ -258,6 +267,10 @@ public class TransactionService {
                 money.format(entry.getAmount()),
                 entry.getOptionName(),
                 entry.getDetail(),
+                entry.getBook() == null ? null : entry.getBook().getId(),
+                entry.getBook() == null ? null : entry.getBook().getName(),
+                entry.getCustomerId(),
+                entry.getBankDetails(),
                 entry.buildDescription(),
                 entry.getPaymentMethod(),
                 entry.getPaymentMethod() == null ? entry.getOptionName() : paymentMethodLabel(entry.getPaymentMethod()),

@@ -17,6 +17,16 @@ public final class CommonDtos {
             @NotBlank(message = "Enter your password.") @Size(max = 100) String password) {
     }
 
+    public record PinLoginRequest(
+            @NotBlank(message = "Enter your PIN.") @Size(min = 4, max = 10) String pin) {
+    }
+
+    public record ChangePasswordRequest(
+            @NotBlank(message = "Enter your current password.") String currentPassword,
+            @NotBlank(message = "Enter a new password.") @Size(min = 6, max = 100) String newPassword,
+            @NotBlank(message = "Confirm the new password.") String confirmPassword) {
+    }
+
     public record AuthUser(Long id, String username, String role, Long accountId, String name) {
     }
 
