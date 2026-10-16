@@ -68,6 +68,7 @@ export default function UserPortalPage() {
   });
 
   const booksQuery = useQuery({ queryKey: ['books'], queryFn: () => api.books.list() });
+  const availableBooks = (booksQuery.data ?? []).filter((candidate) => candidate.status === 'ACTIVE');
 
   const addMoneyMutation = useMutation({
     mutationFn: () => {
@@ -80,9 +81,9 @@ export default function UserPortalPage() {
           : acctType === 'SUPPLIER'
             ? 'PAYMENT_MADE'
             : 'PAYMENT_RECEIVED';
-      const selectedBook = (booksQuery.data ?? []).find((b: any) => b.name === book.trim());
+      const selectedBook = availableBooks.find((candidate) => candidate.id === Number(book));
       const parts = [effectiveOption];
-      if (book.trim()) parts.push(`Book: ${book.trim()}`);
+      if (selectedBook) parts.push(`Book: ${selectedBook.name}`);
       if (customerId.trim()) parts.push(`Customer: ${customerId.trim()}`);
       if (bankDetails.trim()) parts.push(`Bank: ${bankDetails.trim()}`);
       if (extraDetail.trim()) parts.push(extraDetail.trim());
@@ -90,7 +91,7 @@ export default function UserPortalPage() {
       return api.transactions.create(
         {
           accountId: accountId!,
-          bookId: selectedBook ? selectedBook.id : undefined,
+          bookId: selectedBook?.id,
           type: txType,
           entryDate,
           amount,
@@ -129,8 +130,23 @@ export default function UserPortalPage() {
       setFormError('Please enter a valid amount greater than 0.');
       return;
     }
+    if (availableBooks.length === 0) {
+      setFormError('No active books are assigned to your account. Ask the administrator to grant book access.');
+      return;
+    }
+    if (!book) {
+      setFormError('Please select an assigned book.');
+      return;
+    }
     if (!effectiveOption) {
       setFormError('Please select an option configured by the Admin.');
+      return;
+    }
+    const allowedBackDate = ledgerQuery.data?.account.backDateAllowedDate;
+    if (entryDate < today && entryDate !== allowedBackDate) {
+      setFormError(allowedBackDate
+        ? `Your administrator only allowed entries for ${allowedBackDate}.`
+        : 'Your administrator has not granted permission for a past date.');
       return;
     }
     addMoneyMutation.mutate();
@@ -279,18 +295,22 @@ export default function UserPortalPage() {
             <Alert tone="error">{formError}</Alert>
           </div>
         ) : null}
+        {!booksQuery.isPending && availableBooks.length === 0 && (
+          <div className="mt-3"><Alert tone="warning">No active books are assigned to your account. Ask the administrator to grant book access before submitting an entry.</Alert></div>
+        )}
 
         <form onSubmit={onSubmit} className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          <Field label="Book">
+          <Field label="Book" required>
             {(fid) => (
               <SelectInput
                 id={fid}
                 value={book}
-                onChange={(e) => setBook(e.target.value)}
+                onChange={(e) => { setBook(e.target.value); setIdempotencyKey(newIdempotencyKey()); }}
+                disabled={booksQuery.isPending || availableBooks.length === 0}
               >
-                <option value="">Select book</option>
-                {(booksQuery.data ?? []).filter((b: any) => b.status === 'ACTIVE').map((b: any) => (
-                  <option key={b.id} value={b.name}>{b.name}</option>
+                <option value="">Select assigned book</option>
+                {availableBooks.map((availableBook) => (
+                  <option key={availableBook.id} value={String(availableBook.id)}>{availableBook.name}</option>
                 ))}
               </SelectInput>
             )}
@@ -369,7 +389,13 @@ export default function UserPortalPage() {
             )}
           </Field>
 
-          <Field label="Date" required>
+          <Field
+            label="Date"
+            required
+            hint={ledgerQuery.data.account.backDateAllowedDate
+              ? `Back-date permission is active for ${ledgerQuery.data.account.backDateAllowedDate}.`
+              : `Past dates need admin permission. Today is ${today}.`}
+          >
             {(fid) => (
               <TextInput
                 id={fid}

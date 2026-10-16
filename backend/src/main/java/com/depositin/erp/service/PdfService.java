@@ -1,5 +1,6 @@
 package com.depositin.erp.service;
 
+import com.depositin.erp.dto.TransactionDtos;
 import com.depositin.erp.entity.ApprovalStatus;
 import com.depositin.erp.entity.LedgerTransaction;
 import com.depositin.erp.entity.TransactionKind;
@@ -107,20 +108,28 @@ public class PdfService {
     /** All users summary PDF with per-user totals. */
     @Transactional(readOnly = true)
     public byte[] allUsersSummaryPdf(LocalDate from, LocalDate to) throws IOException {
-        List<UserAccount> everyone = new ArrayList<>(users.findByRoleOrderByCreatedAtAsc(UserRole.USER));
-        everyone.addAll(users.findByRoleOrderByCreatedAtAsc(UserRole.ADMIN));
+        return allUsersSummaryPdf(from, to, null, null);
+    }
 
-        List<Object[]> grouped = transactions.sumApprovedGroupByUserAndKind(from, to);
+    /** Filtered summary PDF matching the dashboard's selected date range, book and staff member. */
+    @Transactional(readOnly = true)
+    public byte[] allUsersSummaryPdf(LocalDate from, LocalDate to, Long bookId, Long userId) throws IOException {
+        List<UserAccount> everyone = new ArrayList<>(users.findByRoleOrderByCreatedAtAsc(UserRole.USER));
+        if (userId != null) {
+            everyone.removeIf(user -> !user.getId().equals(userId));
+        }
+
+        List<Object[]> grouped = transactions.sumApprovedByFiltersGrouped(from, to, bookId, userId);
         Map<Long, BigDecimal> depositMap = new HashMap<>();
         Map<Long, BigDecimal> withdrawalMap = new HashMap<>();
         for (Object[] row : grouped) {
-            Long userId = (Long) row[0];
+            Long groupedUserId = (Long) row[0];
             TransactionKind kind = (TransactionKind) row[1];
             BigDecimal total = (BigDecimal) row[2];
             if (kind == TransactionKind.DEPOSIT) {
-                depositMap.put(userId, total);
+                depositMap.put(groupedUserId, total);
             } else {
-                withdrawalMap.put(userId, total);
+                withdrawalMap.put(groupedUserId, total);
             }
         }
 
@@ -133,8 +142,14 @@ public class PdfService {
                     new String[]{"User", "Deposits (+)", "Withdrawals (-)", "Balance"},
                     new float[]{245f, 105f, 105f, 105f});
 
-            w.text(FONT_BOLD, 16, "All Users Summary");
+            w.text(FONT_BOLD, 16, userId == null ? "All Users Summary" : "Staff Deposit / Withdrawal Summary");
             w.text(FONT, 11, "Report period: " + period);
+            if (bookId != null) {
+                w.text(FONT, 11, "Book ID: " + bookId);
+            }
+            if (userId != null && !everyone.isEmpty()) {
+                w.text(FONT, 11, "Staff: " + sanitize(everyone.get(0).getName()) + " (" + everyone.get(0).getAccountCode() + ")");
+            }
             w.text(FONT, 11, "Generated: " + dates.formatInstant(Instant.now()) + " (" + dates.businessZone() + ")");
             w.spacer(8);
             w.startTable();
@@ -150,6 +165,47 @@ public class PdfService {
             }
             w.rowBold("TOTAL", money.format(grandDeposits), money.format(grandWithdrawals),
                     money.format(grandDeposits.subtract(grandWithdrawals)));
+            w.close();
+            return toBytes(doc);
+        }
+    }
+
+    /** Combined staff history PDF with the same filters as the multi-user report. */
+    @Transactional(readOnly = true)
+    public byte[] multiUserHistoryPdf(List<TransactionDtos.TransactionView> rows, List<Long> userIds,
+                                      LocalDate from, LocalDate to, Long bookId) throws IOException {
+        String period = dates.periodLabel(null, from, to);
+        String staffLabel = "All staff";
+        if (userIds != null && !userIds.isEmpty()) {
+            staffLabel = users.findAllById(userIds).stream()
+                    .filter(user -> user.getRole() == UserRole.USER)
+                    .map(user -> sanitize(user.getName()))
+                    .collect(java.util.stream.Collectors.joining(", "));
+            if (staffLabel.isBlank()) staffLabel = "Selected staff";
+        }
+
+        try (PDDocument doc = new PDDocument()) {
+            PdfWriter w = new PdfWriter(doc,
+                    new String[]{"Entry date", "Staff", "Book", "Type", "Amount", "Status", "Description"},
+                    new float[]{58f, 92f, 60f, 54f, 72f, 60f, 119f});
+            w.text(FONT_BOLD, 16, "Multi-user History Report");
+            w.text(FONT, 11, "Staff: " + staffLabel);
+            w.text(FONT, 11, "Report period: " + period);
+            if (bookId != null) w.text(FONT, 11, "Book ID: " + bookId);
+            w.text(FONT, 11, "Generated: " + dates.formatInstant(Instant.now()) + " (" + dates.businessZone() + ")");
+            w.text(FONT, 10, "Entries: " + rows.size());
+            w.spacer(8);
+            w.startTable();
+            for (TransactionDtos.TransactionView row : rows) {
+                w.row(
+                        sanitize(row.entryDate()),
+                        sanitize(row.account() == null ? "" : row.account().name()),
+                        sanitize(row.bookName()),
+                        sanitize(row.typeLabel()),
+                        sanitize(row.amount()),
+                        sanitize(row.approvalStatus()),
+                        sanitize(row.description()));
+            }
             w.close();
             return toBytes(doc);
         }

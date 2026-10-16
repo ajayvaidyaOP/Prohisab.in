@@ -48,7 +48,10 @@ public final class AccountDtos {
             long entryCount,
             String lastEntryDate,
             String createdAt,
-            String updatedAt) {
+            String updatedAt,
+            boolean hasPin,
+            List<Long> allowedBookIds,
+            String backDateAllowedDate) {
     }
 
     public record AccountOption(
@@ -64,13 +67,11 @@ public final class AccountDtos {
             Balance balance) {
     }
 
-    /**
-     * Admin user creation: only Name and Password are required.
-     */
+    /** Staff creation requires a name and either a password or a 4-digit PIN. */
     public record CreateAccountRequest(
             @NotBlank(message = "Name is required.") @Size(min = 2, max = 150, message = "Name must be 2-150 characters.") String name,
-            @NotBlank(message = "Password is required.") @Size(max = 100, message = "Password must be 100 characters or fewer.") String password,
-            @Size(min = 4, max = 10, message = "PIN must be 4-10 digits.") String pin) {
+            @Size(max = 100, message = "Password must be 100 characters or fewer.") String password,
+            @Pattern(regexp = "^$|^\\d{4}$", message = "PIN must be exactly 4 digits.") String pin) {
     }
 
     public record UpdateAccountRequest(
@@ -87,6 +88,15 @@ public final class AccountDtos {
     public record ResetPasswordRequest(
             @NotBlank(message = "Enter a new password.") @Size(min = 6, max = 100, message = "Password must be at least 6 characters.") String newPassword,
             @NotBlank(message = "Confirm the new password.") String confirmPassword) {
+    }
+
+    /** An empty or null PIN disables PIN login; otherwise exactly four digits are required. */
+    public record PinUpdateRequest(
+            @Pattern(regexp = "^$|^\\d{4}$", message = "PIN must be exactly 4 digits.") String pin) {
+    }
+
+    /** The admin may grant one staff member permission for one historic entry date. */
+    public record BackDateRequest(String date) {
     }
 
     public record AccountResponse(AccountSummary account) {

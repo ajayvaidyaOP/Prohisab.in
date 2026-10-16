@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -88,6 +89,13 @@ public class AccountController {
         userService.resetPassword(id, request, userService.requireUser(admin.id()));
     }
 
+    @PutMapping("/{id}/pin")
+    public AccountDtos.AccountResponse setPin(@PathVariable Long id,
+                                              @Valid @RequestBody AccountDtos.PinUpdateRequest request) {
+        CurrentUser admin = SecurityUtils.requireAdmin();
+        return new AccountDtos.AccountResponse(userService.setPin(id, request.pin(), userService.requireUser(admin.id())));
+    }
+
     @PutMapping("/{id}/books")
     public AccountDtos.AccountResponse setBooks(@PathVariable Long id, @RequestBody List<Long> bookIds) {
         CurrentUser admin = SecurityUtils.requireAdmin();
@@ -95,10 +103,11 @@ public class AccountController {
     }
 
     @PatchMapping("/{id}/back-date")
-    public AccountDtos.AccountResponse setBackDate(@PathVariable Long id, @RequestBody Map<String, Boolean> body) {
+    public AccountDtos.AccountResponse setBackDate(@PathVariable Long id,
+                                                   @RequestBody AccountDtos.BackDateRequest request) {
         CurrentUser admin = SecurityUtils.requireAdmin();
-        boolean allowed = Boolean.TRUE.equals(body.get("allowed"));
-        return new AccountDtos.AccountResponse(userService.setBackDateEntry(id, allowed, userService.requireUser(admin.id())));
+        return new AccountDtos.AccountResponse(
+                userService.setBackDateAllowedDate(id, request == null ? null : request.date(), userService.requireUser(admin.id())));
     }
 
     private void requireVisible(Long id, CurrentUser viewer) {

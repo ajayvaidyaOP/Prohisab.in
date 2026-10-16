@@ -30,14 +30,28 @@ public class BookService {
     }
 
     @Transactional(readOnly = true)
+    public List<Book> listFor(CurrentUser viewer) {
+        List<Book> visible;
+        if (viewer.isAdmin()) {
+            visible = books.findAllByOrderByCreatedAtAsc();
+        } else {
+            UserAccount user = users.requireUser(viewer.id());
+            visible = user.getAllowedBooks().stream()
+                    .filter(book -> book.getStatus() == Book.Status.ACTIVE)
+                    .sorted(java.util.Comparator.comparing(Book::getCreatedAt))
+                    .toList();
+        }
+        visible.forEach(book -> book.setEntryCount(transactions.countByBook_Id(book.getId())));
+        return visible;
+    }
+
+    @Transactional(readOnly = true)
     public List<Book> listAll() {
-        SecurityUtils.requireUser();
-        return books.findAllByOrderByCreatedAtAsc();
+        return listFor(SecurityUtils.requireUser());
     }
 
     @Transactional(readOnly = true)
     public List<Book> listActive() {
-        SecurityUtils.requireUser();
         return books.findByStatusOrderByCreatedAtAsc(Book.Status.ACTIVE);
     }
 

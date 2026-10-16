@@ -51,7 +51,7 @@ export default function LoginPage() {
   const submitPin = (event: FormEvent) => {
     event.preventDefault();
     const next: typeof errors = {};
-    if (!pin.trim()) next.pin = 'Enter your 4-digit PIN.';
+    if (!/^\d{4}$/.test(pin.trim())) next.pin = 'Enter your 4-digit PIN.';
     setErrors(next);
     if (Object.keys(next).length === 0) pinLogin.mutate();
   };
@@ -137,10 +137,10 @@ export default function LoginPage() {
                     autoComplete="current-password"
                     autoFocus
                     value={pin}
-                    onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
                     aria-describedby={describedBy}
                     invalid={!!errors.pin}
-                    maxLength={10}
+                    maxLength={4}
                   />
                 )}
               </Field>

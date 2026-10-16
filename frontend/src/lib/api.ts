@@ -3,6 +3,7 @@ import type {
   AccountSummary,
   AuditItem,
   AuthUser,
+  BookSummary,
   DashboardData,
   LedgerResponse,
   Pagination,
@@ -164,7 +165,9 @@ export const api = {
     create: (body: unknown, idempotencyKey: string) => post<{ account: AccountSummary; replayed: boolean }>('/accounts', body, idempotencyKey),
     update: (id: number, body: unknown) => patch<{ account: AccountSummary }>(`/accounts/${id}`, body),
     setStatus: (id: number, isActive: boolean) => patch<{ account: AccountSummary }>(`/accounts/${id}/status`, { isActive }),
-    setBackDate: (id: number, allowed: boolean) => patch<{ account: AccountSummary }>(`/accounts/${id}/back-date`, { allowed }),
+    setBackDate: (id: number, date: string | null) => patch<{ account: AccountSummary }>(`/accounts/${id}/back-date`, { date }),
+    setPin: (id: number, pin: string | null) => put<{ account: AccountSummary }>(`/accounts/${id}/pin`, { pin }),
+    setBooks: (id: number, bookIds: number[]) => put<{ account: AccountSummary }>(`/accounts/${id}/books`, bookIds),
     resetPassword: (id: number, body: { newPassword: string; confirmPassword: string }) =>
       post<void>(`/accounts/${id}/reset-password`, body),
   },
@@ -200,7 +203,7 @@ export const api = {
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
     },
-    downloadAllUsersSummaryPdf: async (params: { from?: string; to?: string } = {}) => {
+    downloadAllUsersSummaryPdf: async (params: { from?: string; to?: string; bookId?: number; userId?: number } = {}) => {
       const headers: Record<string, string> = {
         Accept: 'application/pdf',
         'X-Requested-With': 'XMLHttpRequest',
@@ -225,10 +228,10 @@ export const api = {
     },
   },
   books: {
-    list: () => get<{ id: number; name: string; status: string }[]>('/books'),
-    create: (name: string) => post<{ id: number; name: string; status: string }>('/books', { name }),
-    archive: (id: number) => post<{ id: number; name: string; status: string }>(`/books/${id}/archive`, {}),
-    restore: (id: number) => post<{ id: number; name: string; status: string }>(`/books/${id}/restore`, {}),
+    list: () => get<BookSummary[]>('/books'),
+    create: (name: string) => post<BookSummary>('/books', { name }),
+    archive: (id: number) => post<BookSummary>(`/books/${id}/archive`, {}),
+    restore: (id: number) => post<BookSummary>(`/books/${id}/restore`, {}),
   },
   transactions: {
     list: (params: {
@@ -246,8 +249,26 @@ export const api = {
         ...params,
         includeReversals: params.includeReversals === false ? 'false' : undefined,
       }),
-    multiReport: (userIds: number[] | null, from?: string, to?: string) =>
-      get<unknown[]>(`/transactions/multi-report`, { userIds: userIds ? userIds.join(',') : undefined, from, to }),
+    multiReport: (userIds: number[] | null, from?: string, to?: string, bookId?: number) =>
+      get<Transaction[]>(`/transactions/multi-report`, { userIds: userIds?.length ? userIds.join(',') : undefined, from, to, bookId }),
+    downloadMultiReportPdf: async (userIds: number[] | null, from?: string, to?: string, bookId?: number) => {
+      const params = { userIds: userIds?.length ? userIds.join(',') : undefined, from, to, bookId };
+      const response = await fetch(buildUrl('/transactions/multi-report.pdf', params), {
+        method: 'GET',
+        headers: { Accept: 'application/pdf', 'X-Requested-With': 'XMLHttpRequest' },
+        credentials: API_BASE_URL ? 'include' : 'same-origin',
+      });
+      if (!response.ok) throw new ApiError(response.status, 'PDF_DOWNLOAD_FAILED', 'Could not download the multi-user history PDF.');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `multi-user-history-${new Date().toISOString().slice(0, 10)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    },
     create: (body: Record<string, unknown>, idempotencyKey: string) =>
       post<{ transaction: Transaction; account: AccountSummary; replayed: boolean }>(
         '/transactions',
@@ -273,7 +294,8 @@ export const api = {
         idempotencyKey,
       ),
   },
-  dashboard: () => get<DashboardData>('/dashboard'),
+  dashboard: (params: { from?: string; to?: string; bookId?: number; userId?: number } = {}) =>
+    get<DashboardData>('/dashboard', params),
   settings: {
     get: () => get<SettingsView>('/settings'),
     update: (body: unknown) => put<{ business: SettingsView['business']; today: string }>('/settings', body),

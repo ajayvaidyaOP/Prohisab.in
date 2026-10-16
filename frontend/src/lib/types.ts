@@ -73,6 +73,9 @@ export interface AccountSummary {
   isActive: boolean;
   entryCount: number;
   lastEntryDate: string | null;
+  hasPin?: boolean;
+  allowedBookIds?: number[];
+  backDateAllowedDate?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -126,6 +129,13 @@ export interface Transaction {
   side: BalanceSide;
   direction: EntryDirection;
   amount: string;
+  option?: string | null;
+  detail?: string | null;
+  bookId?: number | null;
+  bookName?: string | null;
+  customerId?: string | null;
+  bankDetails?: string | null;
+  description?: string | null;
   paymentMethod: PaymentMethod | null;
   paymentMethodLabel: string | null;
   referenceNumber: string | null;
@@ -175,6 +185,7 @@ export interface DashboardData {
     customersWithBalance: number;
     suppliersWithBalance: number;
     pendingSubmissionsCount?: number;
+    activeBooks?: number;
   };
   userLedgerTotals: {
     totalUserPaid: string;
@@ -229,10 +240,17 @@ export interface AuditItem {
   id: number;
   action: string;
   entityType: string;
-  entityId: number | null;
+  entityId: string | null;
   actor: string | null;
   details: unknown;
   createdAt: string;
+}
+
+export interface BookSummary {
+  id: number;
+  name: string;
+  status: 'ACTIVE' | 'ARCHIVED' | string;
+  entryCount?: number;
 }
 
 export interface AccountOption {

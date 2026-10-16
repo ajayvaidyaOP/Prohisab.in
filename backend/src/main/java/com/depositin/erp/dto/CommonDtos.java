@@ -1,6 +1,7 @@
 package com.depositin.erp.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /** Shared pagination envelope. */
@@ -18,7 +19,7 @@ public final class CommonDtos {
     }
 
     public record PinLoginRequest(
-            @NotBlank(message = "Enter your PIN.") @Size(min = 4, max = 10) String pin) {
+            @NotBlank(message = "Enter your PIN.") @Pattern(regexp = "^\\d{4}$", message = "PIN must be exactly 4 digits.") String pin) {
     }
 
     public record ChangePasswordRequest(

@@ -16,11 +16,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
- * User account management. Admin creates users with Name + Password only.
- * Login names are case-insensitively unique. Users cannot change their own
- * password - only an admin can reset it.
+ * Staff account management. Names are case-insensitively unique; staff can use
+ * either a password or a 4-digit PIN to sign in. Only an admin may reset passwords.
  */
 @Service
 public class UserService {
@@ -31,15 +31,17 @@ public class UserService {
     private final LedgerService ledger;
     private final SessionService sessions;
     private final BookRepository books;
+    private final DateService dates;
 
     public UserService(UserRepository users, AuthService auth, AuditService audit,
-                       LedgerService ledger, SessionService sessions, BookRepository books) {
+                       LedgerService ledger, SessionService sessions, BookRepository books, DateService dates) {
         this.users = users;
         this.books = books;
         this.auth = auth;
         this.audit = audit;
         this.ledger = ledger;
         this.sessions = sessions;
+        this.dates = dates;
     }
 
     @Transactional
@@ -50,21 +52,34 @@ public class UserService {
             throw ApiException.conflict(ErrorCode.DUPLICATE_RECORD,
                     "A user with this name already exists. Choose a different name.");
         }
-        if (isWeakPassword(request.password())) {
+        String pin = request.pin() == null || request.pin().isBlank() ? null : request.pin().trim();
+        String password = request.password() == null || request.password().isBlank() ? null : request.password();
+        if (pin == null && password == null) {
+            throw ApiException.validation("Provide a staff PIN or password.",
+                    java.util.List.of(new ApiException.FieldError("pin", "Enter a 4-digit staff PIN.")));
+        }
+        if (pin != null && !pin.matches("\\d{4}")) {
+            throw ApiException.validation("PIN must be exactly 4 digits.",
+                    java.util.List.of(new ApiException.FieldError("pin", "Enter exactly 4 digits.")));
+        }
+        if (password != null && isWeakPassword(password)) {
             throw ApiException.unprocessable(ErrorCode.PASSWORD_TOO_WEAK,
                     "Password must be at least 6 characters and contain letters and numbers.",
                     java.util.List.of(new ApiException.FieldError("password", "Use at least 6 characters with letters and numbers.")));
+        }
+        if (pin != null && users.existsByPin(pin)) {
+            throw ApiException.conflict(ErrorCode.DUPLICATE_RECORD, "That staff PIN is already in use.");
         }
 
         UserAccount user = new UserAccount();
         user.setName(name);
         user.setNameNormalized(normalized);
-        user.setPasswordHash(auth.passwordEncoder().encode(request.password()));
-        if (request.pin() != null && !request.pin().isBlank()) {
-            user.setPin(request.pin().trim());
-        }
+        // PIN-only staff still receive a random BCrypt password hash so the required
+        // database field is never populated with a known or reusable password.
+        user.setPasswordHash(auth.passwordEncoder().encode(password == null ? UUID.randomUUID().toString() : password));
+        user.setPin(pin);
         user.setRole(UserRole.USER);
-        user.setAccountCode("USR-" + String.format("%06d", 1)); // provisional; replaced below
+        user.setAccountCode("USR-TMP-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12));
         user.setActive(true);
         try {
             user = users.save(user);
@@ -153,27 +168,63 @@ public class UserService {
         audit.record("PASSWORD_RESET", "User", id, actor, Map.of("targetUser", user.getName()));
     }
 
-    @Transactional(readOnly = true)
     @Transactional
-    public AccountDtos.AccountSummary setAllowedBooks(Long id, List<Long> bookIds, UserAccount actor) {
+    public AccountDtos.AccountSummary setPin(Long id, String rawPin, UserAccount actor) {
         UserAccount user = requireUser(id);
-        user.getAllowedBooks().clear();
-        if (bookIds != null) {
-            for (Long bid : bookIds) {
-                books.findById(bid).ifPresent(user.getAllowedBooks()::add);
+        if (user.getRole() != UserRole.USER) throw ApiException.forbidden("PIN login is available only for staff accounts.");
+        String pin = rawPin == null || rawPin.isBlank() ? null : rawPin.trim();
+        if (pin != null && !pin.matches("\\d{4}")) {
+            throw ApiException.validation("PIN must be exactly 4 digits.",
+                    List.of(new ApiException.FieldError("pin", "Enter exactly 4 digits.")));
+        }
+        if (pin != null && users.existsByPin(pin)) {
+            UserAccount existing = users.findByPin(pin).orElse(null);
+            if (existing != null && !existing.getId().equals(id)) {
+                throw ApiException.conflict(ErrorCode.DUPLICATE_RECORD, "That staff PIN is already in use.");
             }
         }
+        user.setPin(pin);
         users.save(user);
-        audit.record("USER_BOOKS_UPDATED", "User", user.getId(), actor, Map.of("bookIds", bookIds == null ? List.of() : bookIds));
+        sessions.destroyAllForUser(user.getId(), null);
+        audit.record(pin == null ? "PIN_DISABLED" : "PIN_RESET", "User", user.getId(), actor,
+                Map.of("targetUser", user.getName(), "enabled", pin != null));
         return ledger.summarize(user);
     }
 
     @Transactional
-    public AccountDtos.AccountSummary setBackDateEntry(Long id, boolean allowed, UserAccount actor) {
+    public AccountDtos.AccountSummary setAllowedBooks(Long id, List<Long> bookIds, UserAccount actor) {
         UserAccount user = requireUser(id);
-        user.setBackDateEntry(allowed);
+        if (user.getRole() != UserRole.USER) throw ApiException.forbidden("Book access can only be assigned to staff accounts.");
+        user.getAllowedBooks().clear();
+        if (bookIds != null) {
+            for (Long bid : bookIds.stream().distinct().toList()) {
+                Book book = books.findById(bid)
+                        .orElseThrow(() -> ApiException.notFound("Book not found: " + bid));
+                if (book.getStatus() == Book.Status.ACTIVE) {
+                    user.getAllowedBooks().add(book);
+                }
+            }
+        }
         users.save(user);
-        audit.record("USER_BACKDATE_UPDATED", "User", user.getId(), actor, Map.of("allowed", allowed));
+        audit.record("USER_BOOKS_UPDATED", "User", user.getId(), actor,
+                Map.of("bookIds", bookIds == null ? List.of() : bookIds));
+        return ledger.summarize(user);
+    }
+
+    @Transactional
+    public AccountDtos.AccountSummary setBackDateAllowedDate(Long id, String rawDate, UserAccount actor) {
+        UserAccount user = requireUser(id);
+        if (user.getRole() != UserRole.USER) throw ApiException.forbidden("Back-date access can only be assigned to staff accounts.");
+        java.time.LocalDate date = dates.parseDate(rawDate);
+        if (date != null && date.isAfter(dates.today())) {
+            throw ApiException.unprocessable(ErrorCode.FUTURE_DATE,
+                    "Back-date permission cannot be set for a future date.",
+                    List.of(new ApiException.FieldError("date", "Choose today or an earlier date.")));
+        }
+        user.setBackDateAllowedDate(date);
+        users.save(user);
+        audit.record("USER_BACKDATE_UPDATED", "User", user.getId(), actor,
+                Map.of("date", date == null ? "" : date.toString()));
         return ledger.summarize(user);
     }
 

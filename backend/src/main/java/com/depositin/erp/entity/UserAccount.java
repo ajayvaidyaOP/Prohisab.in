@@ -18,6 +18,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 import java.time.Instant;
+import java.time.LocalDate;
 
 /**
  * A login account. Every USER owns one ledger; ADMIN manages the system.
@@ -67,8 +68,9 @@ public class UserAccount {
     @Column(name = "is_active", nullable = false)
     private boolean active = true;
 
-    @Column(name = "back_date_entry", nullable = false)
-    private boolean backDateEntry = false;
+    /** Date a staff member is explicitly allowed to backdate entries to. */
+    @Column(name = "back_date_allowed_date")
+    private LocalDate backDateAllowedDate;
 
     @ManyToMany
     @JoinTable(name = "user_books",
@@ -200,12 +202,12 @@ public class UserAccount {
         this.active = active;
     }
 
-    public boolean isBackDateEntry() {
-        return backDateEntry;
+    public LocalDate getBackDateAllowedDate() {
+        return backDateAllowedDate;
     }
 
-    public void setBackDateEntry(boolean backDateEntry) {
-        this.backDateEntry = backDateEntry;
+    public void setBackDateAllowedDate(LocalDate backDateAllowedDate) {
+        this.backDateAllowedDate = backDateAllowedDate;
     }
 
     public Set<Book> getAllowedBooks() {
