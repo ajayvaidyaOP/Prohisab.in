@@ -3,8 +3,8 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
 // The browser only ever talks to relative URLs (/api/...). In development the Vite dev server
-// forwards /api to the backend on the same machine, so no backend address is exposed to the browser.
-const apiTarget = process.env.API_PROXY_TARGET ?? 'http://127.0.0.1:4000';
+// forwards /api to the Spring Boot backend on the same machine, so no backend address is exposed to the browser.
+const apiTarget = process.env.API_PROXY_TARGET ?? 'http://127.0.0.1:8080';
 
 const proxy = {
   '/api': {

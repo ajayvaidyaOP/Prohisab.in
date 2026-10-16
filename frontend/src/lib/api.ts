@@ -34,24 +34,8 @@ export class ApiError extends Error {
 }
 
 export const SESSION_EXPIRED_EVENT = 'erp:session-expired';
-const SESSION_TOKEN_STORAGE_KEY = 'erp_session_token';
-
-function readStoredSessionToken(): string | null {
-  try {
-    return window.sessionStorage.getItem(SESSION_TOKEN_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredSessionToken(token: string | null): void {
-  try {
-    if (token) window.sessionStorage.setItem(SESSION_TOKEN_STORAGE_KEY, token);
-    else window.sessionStorage.removeItem(SESSION_TOKEN_STORAGE_KEY);
-  } catch {
-    // ignore storage errors
-  }
-}
+// Authentication is cookie-only: the server sets an HttpOnly session cookie and the
+// browser sends it automatically. No token is ever stored in JavaScript.
 
 type Query = Record<string, string | number | boolean | null | undefined>;
 
@@ -84,8 +68,6 @@ async function request<T>(method: string, path: string, options: RequestOptions 
     Accept: 'application/json',
     'X-Requested-With': 'XMLHttpRequest',
   };
-  const storedToken = readStoredSessionToken();
-  if (storedToken) headers['X-Session-Token'] = storedToken;
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
   if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
 
@@ -102,7 +84,6 @@ async function request<T>(method: string, path: string, options: RequestOptions 
   }
 
   if (response.status === 401 && path !== '/auth/login' && path !== '/auth/me') {
-    writeStoredSessionToken(null);
     window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
   }
 
@@ -145,20 +126,30 @@ const post = <T>(path: string, body?: unknown, idempotencyKey?: string) => reque
 const put = <T>(path: string, body?: unknown) => request<T>('PUT', path, { body });
 const patch = <T>(path: string, body?: unknown) => request<T>('PATCH', path, { body });
 
+/**
+ * Maps the UI's transaction payload onto the server contract:
+ * - legacy type names collapse into DEPOSIT / WITHDRAWAL
+ * - `optionName` accepts `option`, and `detail` accepts `description`
+ */
+function mapTransactionInput(body: Record<string, unknown>): Record<string, unknown> {
+  const type = String(body.type ?? '').toUpperCase();
+  const DEPOSIT_TYPES = new Set(['DEPOSIT', 'CREDIT_SALE', 'CREDIT_PURCHASE', 'INCREASE']);
+  const mappedType = DEPOSIT_TYPES.has(type) ? 'DEPOSIT' : 'WITHDRAWAL';
+  const optionName = body.optionName ?? body.option;
+  const detail = body.detail ?? body.description;
+  return {
+    ...body,
+    type: mappedType,
+    optionName: optionName ?? null,
+    detail: detail ?? null,
+  };
+}
+
 export const api = {
   auth: {
-    login: async (username: string, password: string) => {
-      const res = await post<{ user: AuthUser; sessionToken?: string }>('/auth/login', { username, password });
-      if (res.sessionToken) writeStoredSessionToken(res.sessionToken);
-      return res;
-    },
-    logout: async () => {
-      try {
-        await post<void>('/auth/logout');
-      } finally {
-        writeStoredSessionToken(null);
-      }
-    },
+    login: (username: string, password: string) =>
+      post<{ user: AuthUser }>('/auth/login', { username, password }),
+    logout: () => post<void>('/auth/logout'),
     me: () => get<{ user: AuthUser }>('/auth/me'),
   },
   accounts: {
@@ -169,6 +160,8 @@ export const api = {
     create: (body: unknown, idempotencyKey: string) => post<{ account: AccountSummary; replayed: boolean }>('/accounts', body, idempotencyKey),
     update: (id: number, body: unknown) => patch<{ account: AccountSummary }>(`/accounts/${id}`, body),
     setStatus: (id: number, isActive: boolean) => patch<{ account: AccountSummary }>(`/accounts/${id}/status`, { isActive }),
+    resetPassword: (id: number, body: { newPassword: string; confirmPassword: string }) =>
+      post<void>(`/accounts/${id}/reset-password`, body),
   },
   ledger: {
     page: (id: number, params: { from?: string; to?: string; search?: string; page?: number; pageSize?: number }) =>
@@ -182,8 +175,6 @@ export const api = {
         Accept: 'application/pdf',
         'X-Requested-With': 'XMLHttpRequest',
       };
-      const storedToken = readStoredSessionToken();
-      if (storedToken) headers['X-Session-Token'] = storedToken;
       const response = await fetch(buildUrl(`/accounts/${id}/ledger.pdf`, params), {
         method: 'GET',
         headers,
@@ -209,8 +200,6 @@ export const api = {
         Accept: 'application/pdf',
         'X-Requested-With': 'XMLHttpRequest',
       };
-      const storedToken = readStoredSessionToken();
-      if (storedToken) headers['X-Session-Token'] = storedToken;
       const response = await fetch(buildUrl('/dashboard/summary.pdf'), {
         method: 'GET',
         headers,
@@ -246,8 +235,12 @@ export const api = {
         ...params,
         includeReversals: params.includeReversals === false ? 'false' : undefined,
       }),
-    create: (body: unknown, idempotencyKey: string) =>
-      post<{ transaction: Transaction; account: AccountSummary; replayed: boolean }>('/transactions', body, idempotencyKey),
+    create: (body: Record<string, unknown>, idempotencyKey: string) =>
+      post<{ transaction: Transaction; account: AccountSummary; replayed: boolean }>(
+        '/transactions',
+        mapTransactionInput(body),
+        idempotencyKey,
+      ),
     approve: (id: number, idempotencyKey: string) =>
       post<{ transaction: Transaction; account: AccountSummary; alreadyApproved?: boolean; replayed: boolean }>(
         `/transactions/${id}/approve`,
@@ -273,7 +266,6 @@ export const api = {
     update: (body: unknown) => put<{ business: SettingsView['business']; today: string }>('/settings', body),
     updateEntryOptions: (options: string[]) =>
       put<{ business: SettingsView['business']; userEntryOptions: string[] }>('/settings/entry-options', { options }),
-    changePassword: (currentPassword: string, newPassword: string) => post<void>('/settings/password', { currentPassword, newPassword }),
   },
   audit: (params: { page?: number; pageSize?: number; entityType?: string }) =>
     get<{ items: AuditItem[]; pagination: Pagination }>('/audit-logs', params),

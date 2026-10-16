@@ -77,6 +77,9 @@ export const TRANSACTION_TYPE_OPTIONS = {
 
 /** Explains, in plain words, what a transaction type does to the account. */
 export const TYPE_EFFECT: Record<string, string> = {
+  DEPOSIT: 'Deposit (+): Increases the user’s balance.',
+  WITHDRAWAL: 'Withdrawal (-): Reduces the user’s balance.',
+  REVERSAL: 'Reversal: Offsets a previous entry.',
   CREDIT_SALE: 'Deposit (+): Increases the user’s balance.',
   PAYMENT_RECEIVED: 'Withdrawal (-): Reduces the user’s balance.',
   CUSTOMER_CREDIT_ADJUSTMENT: 'Adjusts the user’s balance.',
@@ -87,9 +90,11 @@ export const TYPE_EFFECT: Record<string, string> = {
 
 export function displayEntryLabel(type: string, fallback?: string): string {
   switch (type) {
+    case 'DEPOSIT':
     case 'CREDIT_PURCHASE':
     case 'CREDIT_SALE':
       return '+ Deposit';
+    case 'WITHDRAWAL':
     case 'PAYMENT_MADE':
     case 'PAYMENT_RECEIVED':
       return '- Withdrawal';

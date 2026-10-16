@@ -9,12 +9,20 @@ import { Alert, Button, ButtonLink, Card, Field, PageHeader, Skeleton, TextInput
 interface FormState {
   name: string;
   password: string;
+  confirmPassword: string;
 }
 
 const EMPTY: FormState = {
   name: '',
   password: '',
+  confirmPassword: '',
 };
+
+const PASSWORD_HINT = 'At least 6 characters, with letters and numbers.';
+
+function isWeakPassword(p: string): boolean {
+  return p.length < 6 || !/[a-zA-Z]/.test(p) || !/[0-9]/.test(p);
+}
 
 export default function AccountFormPage() {
   const { id } = useParams();
@@ -32,7 +40,7 @@ export default function AccountFormPage() {
 
   const [form, setForm] = useState<FormState>(EMPTY);
   const [showPassword, setShowPassword] = useState(true);
-  const [errors, setErrors] = useState<Partial<Record<keyof FormState | 'form', string>>>({});
+  const [errors, setErrors] = useState<Partial<Record<keyof FormState | 'form' | 'resetForm' | 'resetDone', string>>>({});
   const [loadedId, setLoadedId] = useState<number | null>(null);
 
   useEffect(() => {
@@ -41,11 +49,37 @@ export default function AccountFormPage() {
     setForm({
       name: a.name,
       password: '',
+      confirmPassword: '',
     });
     setLoadedId(a.id);
   }, [existing.data, loadedId]);
 
   const account = existing.data?.account;
+
+  const reset = useMutation({
+    mutationFn: () =>
+      api.accounts.resetPassword(accountId, {
+        newPassword: form.password,
+        confirmPassword: form.confirmPassword,
+      }),
+    onSuccess: () => {
+      setForm((f) => ({ ...f, password: '', confirmPassword: '' }));
+      setErrors({ resetDone: 'Password reset. The user must sign in with the new password.' });
+    },
+    onError: (error) => {
+      if (error instanceof ApiError && error.details?.length) {
+        const next: Record<string, string> = {};
+        for (const d of error.details) {
+          if (d.field && (d.field === 'newPassword' || d.field === 'confirmPassword' || d.field === 'password')) {
+            next[d.field] = d.message;
+          }
+        }
+        setErrors(Object.keys(next).length ? next : { resetForm: error.message });
+      } else {
+        setErrors({ resetForm: error instanceof Error ? error.message : 'Could not reset the password.' });
+      }
+    },
+  });
 
   const save = useMutation({
     mutationFn: async (body: Record<string, unknown>) => {
@@ -101,29 +135,20 @@ export default function AccountFormPage() {
     const cleanName = form.name.trim();
     if (cleanName.length < 2) next.name = 'Enter the user’s name (at least 2 characters).';
 
-    if (!editing && !form.password) {
-      next.password = 'Enter a password for this user (at least 4 characters).';
-    } else if (form.password && form.password.length < 4) {
-      next.password = 'Password must be at least 4 characters.';
+    if (!editing) {
+      if (!form.password) next.password = `Enter a password for this user. ${PASSWORD_HINT}`;
+      else if (isWeakPassword(form.password)) next.password = `Password too weak. ${PASSWORD_HINT}`;
     }
 
     setErrors(next);
     if (Object.keys(next).length > 0) return;
 
     if (editing) {
-      const changed: Record<string, unknown> = {
-        name: cleanName,
-        username: cleanName,
-      };
-      if (form.password) changed.password = form.password;
-      save.mutate(changed);
+      save.mutate({ name: cleanName });
     } else {
       save.mutate({
         name: cleanName,
-        type: 'CUSTOMER',
-        username: cleanName,
         password: form.password,
-        openingBalance: '0.00',
       });
     }
   };
@@ -164,11 +189,12 @@ export default function AccountFormPage() {
             )}
           </Field>
 
+          {!editing && (
           <Field
-            label={editing ? 'New Password (leave blank to keep same)' : 'Password'}
-            required={!editing}
+            label={'Password'}
+            required
             error={errors.password}
-            hint="Minimum 4 characters"
+            hint={PASSWORD_HINT}
           >
             {(fid, describedBy) => (
               <div className="relative">
@@ -195,6 +221,7 @@ export default function AccountFormPage() {
               </div>
             )}
           </Field>
+          )}
 
           <div className="flex flex-col-reverse gap-2 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
             <ButtonLink to="/accounts">Cancel</ButtonLink>
@@ -204,6 +231,65 @@ export default function AccountFormPage() {
           </div>
         </form>
       </Card>
+
+      {editing && (
+        <Card>
+          <div className="mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
+            <UserPlus className="h-4 w-4 text-indigo-600" />
+            <h2 className="text-sm font-semibold text-slate-900">Reset password</h2>
+          </div>
+          <p className="mb-4 text-sm text-slate-600">
+            Users cannot change their own password. As the Administrator, set a new one here — it takes effect on their next sign-in and signs them out everywhere.
+          </p>
+          <form
+            className="space-y-5"
+            noValidate
+            onSubmit={(e) => {
+              e.preventDefault();
+              const next: Record<string, string> = {};
+              if (!form.password) next.password = `Enter a new password. ${PASSWORD_HINT}`;
+              else if (isWeakPassword(form.password)) next.password = `Password too weak. ${PASSWORD_HINT}`;
+              if (form.confirmPassword !== form.password) next.confirmPassword = 'The passwords do not match.';
+              setErrors(next);
+              if (Object.keys(next).length === 0) reset.mutate();
+            }}
+          >
+            {errors.resetForm && <Alert tone="error">{errors.resetForm}</Alert>}
+            {errors.resetDone && <Alert tone="success">{errors.resetDone}</Alert>}
+            <Field label="New password" required error={errors.password} hint={PASSWORD_HINT}>
+              {(fid, describedBy) => (
+                <TextInput
+                  id={fid}
+                  type="password"
+                  value={form.password}
+                  onChange={(e) => set('password', e.target.value)}
+                  invalid={!!errors.password}
+                  aria-describedby={describedBy}
+                  autoComplete="new-password"
+                />
+              )}
+            </Field>
+            <Field label="Confirm new password" required error={errors.confirmPassword}>
+              {(fid, describedBy) => (
+                <TextInput
+                  id={fid}
+                  type="password"
+                  value={form.confirmPassword}
+                  onChange={(e) => set('confirmPassword', e.target.value)}
+                  invalid={!!errors.confirmPassword}
+                  aria-describedby={describedBy}
+                  autoComplete="new-password"
+                />
+              )}
+            </Field>
+            <div className="flex justify-end">
+              <Button type="submit" variant="danger" loading={reset.isPending}>
+                Reset password
+              </Button>
+            </div>
+          </form>
+        </Card>
+      )}
     </div>
   );
 }

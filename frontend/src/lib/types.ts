@@ -8,14 +8,21 @@ export type BalanceStatus = 'DUE' | 'CREDIT' | 'SETTLED';
 export type PaymentMethod = 'CASH' | 'UPI' | 'BANK_TRANSFER' | 'OTHER';
 export type ApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
+/**
+ * The server returns DEPOSIT / WITHDRAWAL (REVERSAL marks offsetting entries).
+ * The legacy credit-ledger names are kept for form values and old clients and are
+ * mapped to the two kinds by the API layer.
+ */
 export type TransactionType =
+  | 'DEPOSIT'
+  | 'WITHDRAWAL'
+  | 'REVERSAL'
   | 'CREDIT_SALE'
   | 'PAYMENT_RECEIVED'
   | 'CUSTOMER_CREDIT_ADJUSTMENT'
   | 'CREDIT_PURCHASE'
   | 'PAYMENT_MADE'
-  | 'SUPPLIER_CREDIT_ADJUSTMENT'
-  | 'REVERSAL';
+  | 'SUPPLIER_CREDIT_ADJUSTMENT';
 
 export interface AuthUser {
   id: number;

@@ -1,347 +1,256 @@
-# Simple Ledger ERP — Deposit (`+`) & Withdrawal (`-`) System
+# deposit.in — Deposit (`+`) & Withdrawal (`-`) ERP Ledger
 
-A complete **Admin & User Deposit/Withdrawal Ledger ERP** with Admin Approval workflow and PDF Statement exports:
+A complete **Admin & User Deposit/Withdrawal Ledger ERP** with an Admin Approval
+workflow, admin-managed entry options, and PDF/CSV statement exports.
 
 - **Admin Role (`ADMIN`):**
-  - **Direct User Creation (Sirf Name & Password):** Creates users by entering **only Name and Password** — no extra fields needed.
-  - **Admin-Controlled Select Options:** Adds/removes dropdown options on the Dashboard (e.g. `Cash Deposit`, `UPI / Bank Deposit`, `Cash Withdrawal`, `UPI / Bank Withdrawal`, `Site Material`, `Petrol / Transport`, etc.) that users must choose from when submitting a Deposit or Withdrawal.
-  - **Approve / Reject Queue:** Reviews user-submitted **Deposit (`+`)** and **Withdrawal (`-`)** requests (`✓ Approve` or `✕ Reject` with reason), with a live pending count badge in the sidebar.
-  - **Direct Deposit / Withdrawal & 1-Click Password Reset (`Pass`):** Can record a Deposit (`+`) or Withdrawal (`-`) for any user and change any user's password in 1 click.
-  - **PDF Downloads (User Ledger PDF + All Users Summary PDF):** Downloads any user's ledger in `.pdf` format (with 1-click **All Time**, **This Month**, and **Last Month** filters) or downloads the **All Users Summary PDF** from the bottom of the Dashboard / Users page.
+  - **Direct User Creation (Name & Password only):** create a user with just a name and
+    password — the account code and ledger are generated automatically.
+  - **Admin-Controlled Entry Options:** manage the dropdown options users must pick from
+    when submitting an entry (e.g. `Cash Deposit`, `UPI / Bank Deposit`, `Cash Withdrawal`,
+    `Site Material`, `Petrol / Transport`, …) from **Settings → Entry options**.
+  - **Approve / Reject Queue:** review user-submitted **Deposit (`+`)** and
+    **Withdrawal (`-`)** requests (`✓ Approve` or `✕ Reject` with a reason), with a live
+    pending count badge in the sidebar.
+  - **Direct Deposit / Withdrawal:** record an entry for any user — admin entries are
+    approved immediately.
+  - **1-Click Password Reset (`Reset password`):** set a new password for any user from
+    the user's edit page. Users can never change their own password.
+  - **Reversals:** reverse a wrongly approved entry once — an offsetting entry keeps the
+    audit trail intact.
+  - **PDF/CSV Downloads:** any user's ledger as `.pdf` or `.csv` (with All Time /
+    This Month / Last Month quick filters) and an **All Users Summary PDF** from the
+    Dashboard.
 - **Normal User Role (`USER`):**
-  - Logs in using the **Name** and **Password** given by the Admin.
-  - **Password Locked to Admin:** Users cannot change their own password; only the password set by the Admin remains active.
-  - **Private User Portal:** Users only see their own Deposit (`+`), Withdrawal (`-`), Net Balance, and their own submitted entries (never other users' ledgers).
-  - **Submit Deposit (`+`) or Withdrawal (`-`):** Selects an option from the Admin's dropdown list, adds an optional **Detail / Remark** (e.g. `"2 bag cement"`, `"ATM"`, `"GPay"`), and submits the amount for Admin approval.
+  - Signs in with the **Name** and **Password** given by the Admin.
+  - **Password Locked to Admin:** only the Admin can reset a password.
+  - **Private User Portal:** users see only their own entries, net balance and pending
+    status — never another user's ledger.
+  - **Submit Deposit (`+`) or Withdrawal (`-`):** pick an admin-configured option, add an
+    optional detail/remark (`"2 bag cement"`, `"ATM"`), submit for approval.
+
+Money is tracked as **balance = approved deposits − approved withdrawals**. Pending and
+rejected entries never change the balance. All amounts are decimal strings — no floating
+point math anywhere in the stack.
+
+**Stack**
 
 - **Frontend:** React 19, Vite, TypeScript, Tailwind CSS (`frontend/`)
-- **Backend:** Node.js, Express 5, TypeScript (`backend/`)
-- **Database:** MySQL (Local MySQL / XAMPP / Aiven / TiDB Cloud / Railway), accessed through Prisma ORM
+- **Backend:** Java 21, Spring Boot 3.2, Spring Security, Hibernate/JPA (`backend/`)
+- **Database:** MySQL 8 (H2 in-memory for demos and tests)
+- **Schema:** Flyway migrations (`backend/src/main/resources/db/migration/`)
 - **Docs:** [API reference](docs/API.md)
 
 ---
 
-## 💻 Part 1: Local VS Code Setup (3 Easy Steps)
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph Browser
+        UI[React 19 + Vite\nTailwind CSS]
+    end
+
+    subgraph Spring Boot :8080
+        SEC[Session cookie auth\nCSRF + rate limiting]
+        API[REST controllers\n/api/...]
+        SVC[Services\nbalance · approvals · PDFs]
+        SEED[DataSeeder\ninitial admin + options]
+    end
+
+    DB[(MySQL 8\nFlyway migrations)]
+
+    UI -->|"same-origin /api\n(HttpOnly cookie)"| SEC --> API --> SVC --> DB
+    SEED -.-> DB
+    UI -.->|"Vite dev proxy\n:5173 → :8080"| SEC
+```
+
+- **Auth:** HttpOnly session cookie (`erp_session`). The browser never stores tokens.
+  Write requests need `X-Requested-With: XMLHttpRequest` (CSRF protection), and login is
+  rate-limited (10 failures / 15 min per name+IP).
+- **Approvals:** users submit `PENDING` entries; admins approve or reject. Admin-created
+  entries are `APPROVED` immediately. Approval is race-safe (decide exactly once).
+- **Privacy:** every query is scoped — a `USER` can only read/write their own account.
+
+---
+
+## Part 1: Local setup (VS Code)
 
 ### Prerequisites
 
-| Tool | Required Version | Download Link |
+| Tool | Version | Link |
 |---|---|---|
-| **Node.js (LTS)** | **v20.19+** (v22 LTS recommended) | https://nodejs.org |
-| **MySQL Server** *(ya XAMPP)* | **MySQL 8.0+** (5.7 / MariaDB / XAMPP bhi chalega) | https://dev.mysql.com/downloads/installer/ |
+| **JDK** | **21+** | https://adoptium.net |
+| **Node.js** | **20.19+** (LTS) | https://nodejs.org |
+| **MySQL Server** | **8.0+** (or MariaDB / XAMPP) | https://dev.mysql.com/downloads/installer/ |
 
-> 💡 **VS Code PowerShell Error Fix (Windows):**
-> Agar VS Code terminal me `npm` chalane par **`npm.ps1 cannot be loaded because running scripts is disabled on this system`** error aaye, toh VS Code terminal me ye command ek baar run karein:
-> ```powershell
-> Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
-> ```
-
----
-
-### Step 1: Packages Install karein (`npm run setup`)
-
-VS Code me `erp-system` folder open karein, Terminal kholein (`Ctrl + ~`), aur run karein:
+### Three steps
 
 ```bash
+# 1. Install frontend dependencies
 npm run setup
+
+# 2. Create the database
+mysql -u root -p -e "CREATE DATABASE depositin CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+# 3. Configure and run (backend :8080 + frontend :5173)
+cd backend
+cp .env.example .env            # then put your MySQL password in DB_URL/DB_USER/DB_PASSWORD
+cd ..
+npm run dev                     # uses the in-memory demo DB — see below
 ```
-- Ye command `backend` aur `frontend` dono ke packages install karegi aur `backend/.env` file bana degi.
 
----
-
-### Step 2: MySQL Password set karein aur Database Setup run karein (`npm run db:setup:demo`)
-
-1. **`backend/.env`** file kholein aur `DATABASE_URL` me apna MySQL password daalein:
-   - **MySQL Server (root password `12345` example):**
-     ```env
-     DATABASE_URL="mysql://root:12345@localhost:3306/erp_ledger"
-     ```
-   - **XAMPP MySQL (no password):**
-     ```env
-     DATABASE_URL="mysql://root:@localhost:3306/erp_ledger"
-     ```
-2. Terminal me run karein:
-   ```bash
-   npm run db:setup:demo
-   ```
-   *(Bina demo users ke setup karne ke liye sirf `npm run db:setup` chalayein).*
-
-**Default Login Credentials:**
-- **Admin Login:** Username `admin` | Password `Admin@12345`
-- **Demo User 1:** Name `Rahul` (ya `rahul`) | Password `rahul123`
-- **Demo User 2:** Name `Amit` (ya `amit`) | Password `amit123`
-
----
-
-### Step 3: Project Start karein (`npm run dev`)
+`npm run dev` starts the backend with the **`demo-h2`** Maven profile and the
+**`dev-h2`** Spring profile — an in-memory database with a seeded admin
+(`admin` / `AdminPass123`), so you can try everything without MySQL. To run against
+your real MySQL instead:
 
 ```bash
-npm run dev
-```
-- Browser me kholein: **[http://localhost:5173](http://localhost:5173)** (Backend port `4000` par aur Frontend port `5173` par ek saath start ho jayega).
-
----
-
-## 🌐 Part 2: Complete Step-by-Step Deployment Guide (Database + Backend + Frontend)
-
-Niche **Database (`MySQL`) -> Backend (`Render / Railway`) -> Frontend (`Vercel / Netlify`)** deploy karne ka poora step-by-step guide diya gaya hai.
-
-```text
-┌──────────────────────────┐        HTTPS (/api/*)        ┌──────────────────────────┐       MySQL SSL (3306)       ┌──────────────────────────┐
-│   FRONTEND (Vercel)      │  ─────────────────────────►  │   BACKEND (Render)       │  ─────────────────────────►  │   DATABASE (Aiven/TiDB)  │
-│   React + Vite (dist/)   │                              │   Node.js + Express API  │                              │   Cloud MySQL Server     │
-└──────────────────────────┘                              └──────────────────────────┘                              └──────────────────────────┘
+cd backend
+./mvnw spring-boot:run          # picks up .env / environment variables (MySQL)
+cd ../frontend && npm run dev
 ```
 
----
+Sign in at http://localhost:5173 as `admin` / `Admin@12345` (demo) or the admin
+printed in the backend log on first production start — **change it immediately**.
 
-### 🗄️ STEP 1: Database (`MySQL`) Deploy Karein (Aiven / TiDB Cloud / Railway)
+### Useful root scripts
 
-Sabse pehle Cloud par ek MySQL Database banayein ताकि Backend usse connect ho sake:
-
-#### Option 1A: Aiven Free MySQL (Recommended Free Forever Plan)
-1. **[https://aiven.io](https://aiven.io)** par free account banayein aur login karein.
-2. **Create Service** par click karein -> **MySQL** select karein.
-3. Cloud provider & region चुनें (jaise DigitalOcean / AWS India ya Singapore) aur **Free Plan ($0/month)** select karein.
-4. Service ka naam `erp-mysql` rakhein aur **Create Free Service** par click karein.
-5. 2–3 minute me status **Running** ho jayega. Ab **Connection Information** me se **Service URI** copy karein. Wo kuch aisa dikhega:
-   ```text
-   mysql://avnadmin:AVNS_xxxxxxxxxxxx@mysql-erp-xxxx.aivencloud.com:12345/defaultdb?ssl-mode=REQUIRED
-   ```
-6. **Important:** Is URI ke end me se `?ssl-mode=REQUIRED` hata dein (kyunki hum Backend me `DB_SSL=true` lagayenge). Aapka final `DATABASE_URL` aisa hona chahiye:
-   ```text
-   mysql://avnadmin:AVNS_xxxxxxxxxxxx@mysql-erp-xxxx.aivencloud.com:12345/defaultdb
-   ```
-
-#### Option 1B: Railway MySQL (Agar aap Railway use kar rahe hain)
-1. **[https://railway.app](https://railway.app)** par **New Project** -> **Provision MySQL** par click karein.
-2. MySQL service par click karein -> **Variables** tab me jaakar **`MYSQL_URL`** copy कर lein (wahi aapka `DATABASE_URL` hai).
-
-> ✅ **Database Tables Kaise Banenge?**
-> Aapko Cloud MySQL me manually koi SQL query nahi chalani hai! Jab Step 2 me Backend start hoga, uska Start Command (`npm run db:setup && npm start`) **automatically** saare tables, triggers aur Admin account (`admin`) bana dega.
-
----
-
-### ⚙️ STEP 2: Backend (`Node.js + Express`) Deploy Karein (Render.com ya Railway.app)
-
-1. Sabse pehle apna project code apne **GitHub repository** par push karein.
-2. **[https://render.com](https://render.com)** par login karein -> top right me **New +** -> **Web Service** par click karein.
-3. Apna GitHub repository (`erp-system`) connect karein.
-4. Render form me ye **exact settings** bharein:
-
-| Setting | Kya Daalna Hai |
+| Script | What it does |
 |---|---|
-| **Name** | `erp-ledger-backend` |
-| **Root Directory** | `backend` *(Zaroor daalein!)* |
-| **Runtime** | `Node` |
-| **Build Command** | `npm install && npm run build` |
-| **Start Command** | `npm run db:setup && npm start` |
-| **Instance Type** | `Free` (ya Paid) |
-
-5. Ab neeche **Environment Variables** section me **Add Environment Variable** par click karke ye saare variables add karein:
-
-| Key | Value | Kyun Zaroori Hai |
-|---|---|---|
-| `NODE_ENV` | `production` | Production security & optimizations on karta hai |
-| `PORT` | `4000` | Backend server port |
-| `DATABASE_URL` | `mysql://avnadmin:...@.../defaultdb` | Step 1 me copy kiya hua MySQL URL |
-| `DB_SSL` | `true` | Cloud MySQL (Aiven / TiDB) ke SSL connection ke liye (`Railway` local network ho toh `false`) |
-| `APP_TIMEZONE` | `Asia/Kolkata` | Indian Standard Time (`IST`) date calculation ke liye |
-| `COOKIE_SECURE` | `true` | HTTPS par login cookie secure rakhne ke liye |
-| `TRUST_PROXY` | `1` | Render/Railway ke load balancer ke peeche HTTPS detect karne ke liye |
-| `CORS_ORIGIN` | `https://your-frontend.vercel.app` | Aapke Frontend ka URL *(Step 3 ke baad exact Vercel URL yahan update karein)* |
-| `ADMIN_USERNAME` | `admin` | Default Admin Login ID |
-| `ADMIN_PASSWORD` | `Admin@12345` *(ya koi strong 10+ char password)* | Default Admin Password |
-
-6. **Deploy Web Service** par click karein.
-7. Build aur deploy poora hone ke baad Render aapko ek URL dega, jaise:
-   ```text
-   https://erp-ledger-backend.onrender.com
-   ```
-8. **Verify Backend:** Apne browser me ye URL khol kar check karein:
-   ```text
-   https://erp-ledger-backend.onrender.com/api/health
-   ```
-   Agar `{"status":"ok", ...}` dikh raha hai, toh aapka **Database + Backend 100% live** ho chuka hai! 🎉
+| `npm run setup` | Install frontend dependencies |
+| `npm run dev` | Backend (demo DB) + frontend, one terminal |
+| `npm run dev:backend` / `dev:frontend` | Run one side only |
+| `npm run build` | Production jar (`backend/target/depositin-erp-1.0.0.jar`) + frontend `dist/` |
+| `npm run test` | Full backend test suite (52 JUnit tests) |
+| `npm run start` | Run the packaged jar (needs MySQL env vars) |
 
 ---
 
-### 🖥️ STEP 3: Frontend (`React + Vite`) Deploy Karein (Vercel ya Netlify)
+## Part 2: Deploy to a VPS (Java + MySQL)
 
-Ab Frontend ko **Vercel** par deploy karein aur Backend se jodein:
+The production artifact is a single self-contained jar. The frontend builds to static
+files served by any web server (Nginx below).
 
-#### Method 3A: Vercel Deployment with `vercel.json` Proxy (Recommended — Mobile & Safari Friendly!)
+### 1. Server packages
 
-Is method me Vercel khud `/api/*` requests ko aapke Render Backend par forward karta hai, jisse iPhone/Android browsers me third-party cookie ya CORS ki koi problem nahi aati:
-
-1. Project ke andar **`frontend/vercel.json`** file kholein aur usme `https://your-backend-service.onrender.com` ki jagah apna Step 2 wala asli Render Backend URL daal dein:
-   ```json
-   {
-     "rewrites": [
-       {
-         "source": "/api/:path*",
-         "destination": "https://erp-ledger-backend.onrender.com/api/:path*"
-       },
-       {
-         "source": "/(.*)",
-         "destination": "/index.html"
-       }
-     ]
-   }
-   ```
-   *(Agar aap `VITE_API_URL` environment variable use karna chahte hain, toh niche Step 4 dekhein).*
-2. **[https://vercel.com](https://vercel.com)** par login karein -> **Add New...** -> **Project** par click karein.
-3. Apna GitHub repository (`erp-system`) **Import** karein.
-4. Vercel Configure Project screen par ye **exact settings** rakhein:
-
-| Setting | Kya Daalna Hai |
-|---|---|
-| **Framework Preset** | `Vite` |
-| **Root Directory** | `frontend` *(Edit button dabayein aur `frontend` folder select karein!)* |
-| **Build Command** | `npm run build` |
-| **Output Directory** | `dist` |
-
-5. **Environment Variables** (Vercel me):
-   - Agar aapne upar `frontend/vercel.json` me apna Backend URL daal diya hai, toh `VITE_API_URL` daalne ki bhi zaroorat nahi hai (use blank chhod sakte hain).
-   - Ya fir aap **Environment Variables** me ye add kar sakte hain:
-     - **Key:** `VITE_API_URL`
-     - **Value:** `https://erp-ledger-backend.onrender.com` *(Bina trailing `/` ke)*
-6. **Deploy** button par click karein!
-7. 1 minute me Vercel aapko live Frontend URL de dega, jaise:
-   ```text
-   https://erp-system-xyz.vercel.app
-   ```
-8. **Final Link Step:** Is Vercel URL (`https://erp-system-xyz.vercel.app`) ko copy karein aur **Render Backend -> Environment -> `CORS_ORIGIN`** me paste karke **Save Changes** kar dein.
-
-🎉 **Congratulations!** Ab aap apna Vercel URL khol kar `admin` / `Admin@12345` se login kar sakte hain, Users create kar sakte hain, aur PDF download kar sakte hain!
-
----
-
-### 🚀 Alternative: Ek Hi Server Par Frontend + Backend Deploy Karein (Render / Railway Single Service)
-
-Agar aap Vercel aur Render alag-alag nahi rakhna chahte, toh **sirf Render (ya Railway)** par ek hi Web Service me Frontend aur Backend dono chala sakte hain (Backend automatically built Frontend `frontend/dist` ko serve karta hai):
-
-1. Render / Railway par **New Web Service** banayein aur GitHub repo connect karein.
-2. Settings me ye rakhein:
-   - **Root Directory:** *(Blank chhod dein — root `/` hi rahega)*
-   - **Build Command:** `npm run setup && npm run build`
-   - **Start Command:** `npm run db:setup && npm start`
-3. **Environment Variables:**
-   - `NODE_ENV` = `production`
-   - `PORT` = `4000`
-   - `DATABASE_URL` = `mysql://...` *(Aapka Cloud MySQL URL)*
-   - `DB_SSL` = `true`
-   - `COOKIE_SECURE` = `true`
-   - `TRUST_PROXY` = `1`
-   - `ADMIN_USERNAME` = `admin`
-   - `ADMIN_PASSWORD` = `Admin@12345`
-4. Deploy hone ke baad ek hi URL par aapka Frontend aur Backend dono live chalenge!
-
----
-
-### 🖥️ Option C: Ubuntu Cloud VPS Deployment (DigitalOcean / Hostinger VPS / AWS EC2)
-
-Agar aapke paas apna Ubuntu 22.04 / 24.04 VPS server hai, toh wahan MySQL + Backend + Frontend + Nginx HTTPS ek hi server par chalane ke steps:
-
-#### 1. Node.js 22, MySQL Server aur Nginx Install karein
 ```bash
-sudo apt update && sudo apt upgrade -y
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt install -y nodejs mysql-server nginx certbot python3-certbot-nginx ufw
+sudo apt update
+sudo apt install -y openjdk-21-jre mysql-server nginx
 ```
 
-#### 2. MySQL me Database (`erp_ledger`) aur User banayein
-```bash
-sudo mysql -e "
-CREATE DATABASE IF NOT EXISTS erp_ledger CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS 'erp_user'@'localhost' IDENTIFIED BY 'StrongDbPassword123!';
-GRANT ALL PRIVILEGES ON erp_ledger.* TO 'erp_user'@'localhost';
+### 2. Database
+
+```sql
+CREATE DATABASE depositin CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'depositin'@'localhost' IDENTIFIED BY 'CHANGE_ME_STRONG';
+GRANT ALL PRIVILEGES ON depositin.* TO 'depositin'@'localhost';
 FLUSH PRIVILEGES;
-"
 ```
 
-#### 3. Project Clone karein aur `.env` Configure karein
+### 3. Build and upload
+
 ```bash
-sudo mkdir -p /var/www/erp-system
-sudo chown -R $USER:$USER /var/www/erp-system
-git clone https://github.com/ajayvaidyaOP/erp-system.git /var/www/erp-system
-cd /var/www/erp-system
-npm run setup
+npm run build            # locally or on the server (needs JDK 21 + Node 20)
+scp backend/target/depositin-erp-1.0.0.jar user@your-vps:/opt/depositin/
+scp -r frontend/dist user@your-vps:/opt/depositin/frontend-dist
 ```
 
-`backend/.env` edit karein (`nano /var/www/erp-system/backend/.env`):
-```env
-NODE_ENV=production
-PORT=4000
-HOST=127.0.0.1
-DATABASE_URL="mysql://erp_user:StrongDbPassword123!@127.0.0.1:3306/erp_ledger"
-APP_TIMEZONE="Asia/Kolkata"
-COOKIE_SECURE=true
-TRUST_PROXY=1
-ADMIN_USERNAME="admin"
-ADMIN_PASSWORD="StrongAdminPassword123!"
+### 4. Systemd service
+
+`/etc/systemd/system/depositin.service`:
+
+```ini
+[Unit]
+Description=deposit.in ERP
+After=network.target mysql.service
+
+[Service]
+User=www-data
+WorkingDirectory=/opt/depositin
+Environment=DB_URL=jdbc:mysql://localhost:3306/depositin?useSSL=false&serverTimezone=Asia/Kolkata
+Environment=DB_USER=depositin
+Environment=DB_PASSWORD=CHANGE_ME_STRONG
+Environment=ADMIN_NAME=admin
+Environment=ADMIN_PASSWORD=CHANGE_ME_STRONG
+Environment=COOKIE_SECURE=true
+Environment=TRUST_PROXY=true
+ExecStart=/usr/bin/java -jar /opt/depositin/depositin-erp-1.0.0.jar --server.port=8080
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
 ```
 
-#### 4. Database Setup aur Production Build chalayein
 ```bash
-npm run db:setup
-npm run build
+sudo systemctl daemon-reload
+sudo systemctl enable --now depositin
+sudo journalctl -u depositin -f      # first start prints the seeded admin password
 ```
 
-#### 5. PM2 se Server 24x7 Background me Start karein
-```bash
-sudo npm install -g pm2
-pm2 start backend/dist/server.js --name erp-ledger --cwd /var/www/erp-system/backend
-pm2 save
-pm2 startup
-```
+Flyway creates/updates the schema automatically on startup. On the very first start the
+backend seeds the initial administrator (`ADMIN_NAME`/`ADMIN_PASSWORD`, or a random
+password printed once to the log) and the default entry options — reset the password
+immediately.
 
-#### 6. Nginx + Free HTTPS SSL (`Let's Encrypt`) lagayein
-`/etc/nginx/sites-available/erp-ledger` file banayein:
+### 5. Nginx (HTTPS + static frontend + API proxy)
+
 ```nginx
 server {
-    listen 80;
-    server_name ledger.yourdomain.com;
+    listen 443 ssl;
+    server_name your-domain.com;
 
+    ssl_certificate     /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+
+    root /opt/depositin/frontend-dist;
+    index index.html;
     location / {
-        proxy_pass http://127.0.0.1:4000;
-        proxy_http_version 1.1;
+        try_files $uri /index.html;
+    }
+    location /api/ {
+        proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 ```
-Enable Nginx & SSL:
+
+### Environment variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DB_URL` | `jdbc:mysql://localhost:3306/depositin` | JDBC URL |
+| `DB_USER` / `DB_PASSWORD` | — | Database credentials |
+| `PORT` / `SERVER_PORT` | `8080` | HTTP port |
+| `ADMIN_NAME` / `ADMIN_PASSWORD` | `admin` / random | Initial administrator |
+| `COOKIE_SECURE` | `true` | Set `false` only for plain-HTTP demos |
+| `COOKIE_SAME_SITE` | `Lax` | Cookie policy |
+| `TRUST_PROXY` | `false` | `true` behind Nginx |
+| `ALLOWED_ORIGINS` | same-origin | CORS origins for split hosting |
+| `APP_TIMEZONE` | `Asia/Kolkata` | Business timezone |
+| `SESSION_IDLE_MINUTES` / `SESSION_MAX_HOURS` | `120` / `12` | Session limits |
+
+---
+
+## Testing
+
 ```bash
-sudo ln -s /etc/nginx/sites-available/erp-ledger /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d ledger.yourdomain.com
+cd backend && ./mvnw test
 ```
 
----
+52 integration tests cover the acceptance criteria end to end (MockMvc + H2 in MySQL
+mode): login/rate limiting, role enforcement, user creation, the approval workflow and
+its race, balance rules, entry-option validation, date filters, reversals, ledger
+privacy, password-reset flows, and PDF/CSV exports. Optional Testcontainers-based
+MySQL tests can be added for CI environments with Docker.
 
-## 🛠️ Part 3: Common Problems & Instant Fixes (Troubleshooting)
+## Security notes
 
-| Problem / Error | Kyu aata hai & Kaise theek karein (Fix) |
-|---|---|
-| **`Access denied for user 'root'@'localhost'`** | `backend/.env` kholein aur `DATABASE_URL` me apna sahi MySQL password daalein. Agar XAMPP hai toh `mysql://root:@localhost:3306/erp_ledger` rakhein. |
-| **`ECONNREFUSED 127.0.0.1:3306`** | MySQL Server band hai. Windows Services (`services.msc`) me `MySQL80` start karein, ya XAMPP Control Panel me MySQL **Start** karein. |
-| **Cloud MySQL par `SELF_SIGNED_CERT_IN_CHAIN` ya SSL error** | Backend ke Environment Variables me `DB_SSL=true` set karein aur `DATABASE_URL` ke aakhir se `?ssl-mode=REQUIRED` hata dein. |
-| **Deploy ke baad Login karne par `403 Cross-site request blocked`** | Render Backend ke environment variables me `CORS_ORIGIN=https://your-frontend.vercel.app` (bina trailing `/` ke) aur `COOKIE_SECURE=true` set karein. |
-| **Error 1419 (`You do not have the SUPER privilege and binary logging is enabled`)** | `npx prisma migrate deploy` ki jagah **`npm run db:setup`** use karein — ye script triggers aur binary logging ko automatically handle kar leti hai. |
+- HttpOnly session cookies; session tokens are stored server-side as SHA-256 hashes.
+- Users cannot change their own password — the API answers `PASSWORD_CHANGE_DISABLED`.
+- Admin password resets revoke all of that user's sessions immediately.
+- Failed logins are rate-limited; security events land in the append-only audit log.
+- Run behind HTTPS (`COOKIE_SECURE=true`) in production.
 
----
-
-## 📋 Part 4: All Available Commands (Root Folder `erp-system/`)
-
-| Command | Kya karta hai |
-|---|---|
-| `npm run setup` | Backend + Frontend ke packages install karta hai aur `backend/.env` banata hai |
-| `npm run db:setup` | MySQL database, tables, triggers aur default Admin (`admin` / `Admin@12345`) banata hai |
-| `npm run db:setup:demo` | Database setup ke saath demo users (`rahul` / `rahul123` aur `amit` / `amit123`) bhi add karta hai |
-| `npm run dev` | Backend (port 4000) aur Frontend (port 5173) dono ek saath start karta hai |
-| `npm run build` | Frontend (`frontend/dist`) aur Backend (`backend/dist`) dono ko production ke liye build karta hai |
-| `npm start` | Built app ko production mode me `http://localhost:4000` par chalata hai |
-| `npm test` | Backend ke unit tests run karta hai |
