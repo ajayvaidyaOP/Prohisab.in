@@ -3,6 +3,8 @@ node_modules/
 dist/
 build/
 coverage/
+backend/target/
+frontend/dist/
 *.log
 npm-debug.log*
 

@@ -3,20 +3,18 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { CheckCircle2, Search } from 'lucide-react';
 import { api, ApiError } from '../lib/api';
-import { PAYMENT_METHOD_OPTIONS, TRANSACTION_TYPE_OPTIONS, TYPE_EFFECT, cleanAmountInput, formatAmount, formatDate, formatPlain } from '../lib/format';
+import { TRANSACTION_TYPE_OPTIONS, TYPE_EFFECT, cleanAmountInput, formatAmount, formatDate, formatPlain } from '../lib/format';
 import { invalidateFinancial, useDebouncedValue, useIdempotentKey, useSettings } from '../lib/queries';
 import type { AccountType, Transaction } from '../lib/types';
 import { Alert, BalanceBadge, Button, ButtonLink, Card, Field, PageHeader, SelectInput, Skeleton, TextArea, TextInput } from '../components/ui';
 
 const ALL_TYPES = [...TRANSACTION_TYPE_OPTIONS.CUSTOMER, ...TRANSACTION_TYPE_OPTIONS.SUPPLIER].map((t) => t.value as string);
-const PAYMENT_TYPES = ['PAYMENT_RECEIVED', 'PAYMENT_MADE'];
-
 interface FormValues {
   accountId: string;
   type: string;
   entryDate: string;
   amount: string;
-  paymentMethod: string;
+  optionName: string;
   referenceNumber: string;
   notes: string;
 }
@@ -47,7 +45,7 @@ export default function NewTransactionPage() {
     type: ALL_TYPES.includes(initialType) ? initialType : '',
     entryDate: '',
     amount: '',
-    paymentMethod: '',
+    optionName: '',
     referenceNumber: '',
     notes: '',
   });
@@ -77,7 +75,6 @@ export default function NewTransactionPage() {
   const accountType: AccountType | null = account?.type ?? null;
   const typeOptions = accountType ? TRANSACTION_TYPE_OPTIONS[accountType] : [];
   const selectedType = typeOptions.find((t) => t.value === values.type);
-  const requiresMethod = PAYMENT_TYPES.includes(values.type);
 
   // Keep the type valid for the chosen account.
   useEffect(() => {
@@ -139,7 +136,7 @@ export default function NewTransactionPage() {
     else if (today && values.entryDate > today) next.entryDate = `The date cannot be in the future (today is ${formatDate(today)}).`;
     const amount = cleanAmountInput(values.amount);
     if (amount === null || !/[1-9]/.test(amount)) next.amount = 'Enter an amount greater than zero, with up to 2 decimals (for example 1500 or 1500.50).';
-    if (requiresMethod && !values.paymentMethod) next.paymentMethod = 'Choose how the payment was made.';
+    if (!values.optionName) next.optionName = 'Select an entry option.';
     if (account && !account.isActive) next.accountId = 'This account is inactive. Reactivate it before recording transactions.';
     setErrors(next);
     if (Object.keys(next).length > 0) return;
@@ -149,7 +146,8 @@ export default function NewTransactionPage() {
       type: values.type,
       entryDate: values.entryDate,
       amount,
-      paymentMethod: values.paymentMethod || null,
+      optionName: values.optionName,
+      detail: values.notes.trim() || null,
       referenceNumber: values.referenceNumber.trim() || null,
       notes: values.notes.trim() || null,
     };
@@ -162,7 +160,7 @@ export default function NewTransactionPage() {
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
         title="Add transaction"
-        description="Record a credit sale, a payment, a credit purchase or a supplier payment. Balances are calculated by the server."
+        description="Record money added (+) or money withdrawn (-). Balances are calculated by the server."
         actions={<ButtonLink to="/transactions">All transactions</ButtonLink>}
       />
 
@@ -284,13 +282,13 @@ export default function NewTransactionPage() {
                   />
                 )}
               </Field>
-              <Field label="Payment method" required={requiresMethod} error={fieldError('paymentMethod')} hint={requiresMethod ? 'Required for payments.' : 'Optional. Used for payments.'}>
+              <Field label="Entry option" required error={fieldError('optionName')} hint="Configured by the Administrator under Settings.">
                 {(id, describedBy) => (
-                  <SelectInput id={id} value={values.paymentMethod} onChange={(e) => set('paymentMethod', e.target.value)} invalid={!!fieldError('paymentMethod')} aria-describedby={describedBy}>
-                    <option value="">{requiresMethod ? 'Select a method' : 'Not applicable'}</option>
-                    {PAYMENT_METHOD_OPTIONS.map((m) => (
-                      <option key={m.value} value={m.value}>
-                        {m.label}
+                  <SelectInput id={id} value={values.optionName} onChange={(e) => set('optionName', e.target.value)} invalid={!!fieldError('optionName')} aria-describedby={describedBy}>
+                    <option value="">Select an option</option>
+                    {(settings.data?.business.userEntryOptions ?? []).map((name) => (
+                      <option key={name} value={name}>
+                        {name}
                       </option>
                     ))}
                   </SelectInput>

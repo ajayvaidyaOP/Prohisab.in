@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../lib/api';
 import { formatDate, formatDateTime } from '../lib/format';
@@ -27,7 +27,12 @@ const ACTION_LABELS: Record<string, string> = {
   ACCOUNT_DEACTIVATED: 'Account deactivated',
   ACCOUNT_REACTIVATED: 'Account reactivated',
   LEDGER_ENTRY_CREATED: 'Transaction posted',
+  TRANSACTION_CREATED: 'Transaction posted',
+  TRANSACTION_APPROVED: 'Transaction approved',
+  TRANSACTION_REJECTED: 'Transaction rejected',
+  ENTRY_OPTIONS_REPLACED: 'Entry options updated',
   LEDGER_ENTRY_REVERSED: 'Entry reversed',
+  TRANSACTION_REVERSED: 'Entry reversed',
   SETTINGS_UPDATED: 'Settings updated',
   AUTH_LOGIN: 'Signed in',
   AUTH_LOGIN_FAILED: 'Failed sign-in attempt',
@@ -70,7 +75,13 @@ export default function SettingsPage() {
             void qc.invalidateQueries({ queryKey: ['dashboard'] });
           }}
         />
-        <PasswordForm />
+        <EntryOptionsForm
+          key={(s.business.userEntryOptions ?? []).join('|')}
+          initial={s.business.userEntryOptions ?? []}
+          onSaved={() => {
+            void qc.invalidateQueries({ queryKey: ['settings'] });
+          }}
+        />
       </div>
 
       <Card>
@@ -245,70 +256,83 @@ function BusinessForm({
   );
 }
 
-function PasswordForm() {
-  const [current, setCurrent] = useState('');
-  const [next, setNext] = useState('');
-  const [confirm, setConfirm] = useState('');
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [done, setDone] = useState(false);
+function EntryOptionsForm({ initial, onSaved }: { initial: string[]; onSaved: () => void }) {
+  const [items, setItems] = useState<string[]>(initial);
+  const [draft, setDraft] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
 
-  useEffect(() => {
-    if (done) {
-      const t = window.setTimeout(() => setDone(false), 6000);
-      return () => window.clearTimeout(t);
-    }
-  }, [done]);
-
-  const change = useMutation({
-    mutationFn: () => api.settings.changePassword(current, next),
+  const save = useMutation({
+    mutationFn: () => api.settings.updateEntryOptions(items),
     onSuccess: () => {
-      setCurrent('');
-      setNext('');
-      setConfirm('');
-      setErrors({});
-      setDone(true);
+      setError(null);
+      setSaved(true);
+      onSaved();
     },
-    onError: (error) => {
-      if (error instanceof ApiError && error.details?.length) {
-        setErrors(Object.fromEntries(error.details.filter((d) => d.field).map((d) => [d.field as string, d.message])));
-      } else {
-        setErrors({ form: error.message });
-      }
-    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : 'Could not save the options.'),
   });
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    const e: Record<string, string> = {};
-    if (!current) e.currentPassword = 'Enter your current password.';
-    if (next.length < 10) e.newPassword = 'The new password must be at least 10 characters.';
-    if (next !== confirm) e.confirm = 'The passwords do not match.';
-    setErrors(e);
-    if (Object.keys(e).length === 0) change.mutate();
+  const add = () => {
+    const name = draft.trim();
+    if (!name) return;
+    if (items.some((o) => o.toLowerCase() === name.toLowerCase())) {
+      setError('That option already exists.');
+      return;
+    }
+    setItems((list) => [...list, name]);
+    setDraft('');
+    setError(null);
+    setSaved(false);
+  };
+
+  const remove = (name: string) => {
+    setItems((list) => list.filter((o) => o !== name));
+    setSaved(false);
   };
 
   return (
     <Card>
-      <h2 className="mb-1 text-base font-semibold text-slate-900">Change password</h2>
-      <p className="mb-4 text-sm text-slate-600">Changing the password signs out your other sessions. This session stays signed in.</p>
-      <form className="space-y-4" onSubmit={submit} noValidate>
-        {errors.form && <Alert tone="error">{errors.form}</Alert>}
-        {done && <Alert tone="success">Password changed. Other devices have been signed out.</Alert>}
-        <Field label="Current password" required error={errors.currentPassword}>
-          {(id, describedBy) => <TextInput id={id} type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} aria-describedby={describedBy} invalid={!!errors.currentPassword} />}
-        </Field>
-        <Field label="New password" required error={errors.newPassword} hint="At least 10 characters. Use a passphrase you have not used elsewhere.">
-          {(id, describedBy) => <TextInput id={id} type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} aria-describedby={describedBy} invalid={!!errors.newPassword} />}
-        </Field>
-        <Field label="Confirm new password" required error={errors.confirm}>
-          {(id, describedBy) => <TextInput id={id} type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} aria-describedby={describedBy} invalid={!!errors.confirm} />}
-        </Field>
-        <div className="flex justify-end">
-          <Button type="submit" loading={change.isPending}>
-            Update password
+      <h2 className="mb-1 text-base font-semibold text-slate-900">Entry options</h2>
+      <p className="mb-4 text-sm text-slate-600">
+        The list users pick from when they add a deposit or withdrawal. Removing an option keeps it on past entries but hides it from new ones.
+      </p>
+      <div className="space-y-4">
+        {error && <Alert tone="error">{error}</Alert>}
+        {saved && <Alert tone="success">Entry options saved.</Alert>}
+        <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+          {items.length === 0 && <li className="px-3 py-2 text-sm text-slate-500">No options yet. Add at least one below.</li>}
+          {items.map((name) => (
+            <li key={name} className="flex items-center justify-between gap-3 px-3 py-2">
+              <span className="text-sm text-slate-900">{name}</span>
+              <Button type="button" variant="ghost" onClick={() => remove(name)}>
+                Remove
+              </Button>
+            </li>
+          ))}
+        </ul>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <TextInput
+            aria-label="New entry option"
+            placeholder="For example: Site Material"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                add();
+              }
+            }}
+          />
+          <Button type="button" variant="secondary" onClick={add}>
+            Add option
           </Button>
         </div>
-      </form>
+        <div className="flex justify-end">
+          <Button type="button" loading={save.isPending} disabled={items.length === 0} onClick={() => save.mutate()}>
+            Save options
+          </Button>
+        </div>
+      </div>
     </Card>
   );
 }
