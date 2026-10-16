@@ -177,7 +177,6 @@ export default function UserPortalPage() {
 
   const { account, entries, pagination } = ledgerQuery.data;
   const pendingNum = Number(account.pendingBalance);
-  const pendingSubCount = account.pendingSubmissionsCount ?? 0;
 
   return (
     <div className="space-y-6">
@@ -231,13 +230,6 @@ export default function UserPortalPage() {
         </Card>
       </div>
 
-      {pendingSubCount > 0 ? (
-        <Alert tone="info">
-          You have <strong>{pendingSubCount}</strong> submitted {pendingSubCount === 1 ? 'entry' : 'entries'} totalling{' '}
-          <strong>{formatAmount(account.pendingSubmissionsAmount ?? '0.00', symbol)}</strong> awaiting Admin approval.
-        </Alert>
-      ) : null}
-
       {/* Add Deposit / Withdrawal Form (Admin Options + Optional Detail/Remark) */}
       <Card
         className={
@@ -254,7 +246,7 @@ export default function UserPortalPage() {
                 : '- Submit New Withdrawal (Paise Nikalna / Withdraw)'}
             </h2>
             <p className="text-xs text-slate-600">
-              Select an option given by the Admin, add an optional remark, and enter the amount.
+              Deposits are added to your balance immediately. Withdrawals require Admin approval.
             </p>
           </div>
 

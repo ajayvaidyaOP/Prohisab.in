@@ -135,9 +135,9 @@ test('PIN staff, books, scoped access, back-date permission, and idempotent user
   const previous = await write('/transactions', staff, { ...baseEntry, entryDate: addDays(today, -1) }, 'prior-001');
   assert.equal(previous.status, 201, JSON.stringify(previous.body));
   entryId = previous.body.transaction.id;
-  assert.equal(previous.body.transaction.approvalStatus, 'PENDING');
-  assert.equal(previous.body.account.balance.amount, '0.00');
-  assert.equal(previous.body.account.pendingSubmissionsCount, 1);
+  assert.equal(previous.body.transaction.approvalStatus, 'APPROVED');
+  assert.equal(previous.body.account.balance.amount, '0.10');
+  assert.equal(previous.body.account.pendingSubmissionsCount, 0);
 });
 
 test('existing Spring 64-character session cookies still authenticate and can be revoked', async () => {
@@ -154,14 +154,8 @@ test('existing Spring 64-character session cookies still authenticate and can be
 
 test('approval, precise decimals, filtered reports, PDF/CSV and reversal', async () => {
   const dashboardPending = await request(app).get('/api/dashboard').set('Cookie', admin);
-  assert.equal(dashboardPending.body.counts.pendingSubmissionsCount, 1);
-  const approved = await write(`/transactions/${entryId}/approve`, admin, {}, 'approve-001');
-  assert.equal(approved.status, 200, JSON.stringify(approved.body));
-  assert.equal(approved.body.account.balance.amount, '0.10');
-  assert.equal(approved.body.transaction.approvalStatus, 'APPROVED');
-  const again = await write(`/transactions/${entryId}/approve`, admin, {}, 'approve-001');
-  assert.equal(again.status, 200);
-  assert.equal(again.body.replayed, true);
+  assert.equal(dashboardPending.body.counts.pendingSubmissionsCount, 0);
+  assert.equal((await write(`/transactions/${entryId}/approve`, admin, {}, 'approve-001')).status, 409);
   assert.equal((await write(`/transactions/${entryId}/reject`, admin, { reason: 'Too late' })).status, 409);
   const another = await write('/transactions', admin, {
     accountId: staffId, type: 'DEPOSIT', entryDate: today, amount: '0.20',
