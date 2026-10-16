@@ -8,7 +8,7 @@ import { env } from './config/env.ts';
 import { errors } from './lib/errors.ts';
 import { apiRouter } from './routes/index.ts';
 import { requestId, notFound, errorHandler } from './middleware/http.ts';
-import { requireSameOriginWrites } from './middleware/security.ts';
+import { corsMiddleware, requireSameOriginWrites } from './middleware/security.ts';
 
 export function createApp(): express.Express {
   const app = express();
@@ -17,18 +17,21 @@ export function createApp(): express.Express {
 
   app.use(
     helmet({
+      frameguard: false,
       contentSecurityPolicy: {
         useDefaults: true,
         directives: {
           'img-src': ["'self'", 'data:'],
           'script-src': ["'self'"],
           'style-src': ["'self'", "'unsafe-inline'"],
+          'frame-ancestors': ["'self'", 'https://*.e2b.app', 'https://*.arena.ai', '*'],
         },
       },
       crossOriginEmbedderPolicy: false,
     }),
   );
   app.use(requestId);
+  app.use('/api', corsMiddleware);
 
   const apiLimiter = rateLimit({
     windowMs: 60_000,

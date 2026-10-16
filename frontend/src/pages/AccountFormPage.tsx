@@ -1,23 +1,20 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Eye, EyeOff, UserPlus } from 'lucide-react';
 import { api, ApiError } from '../lib/api';
-import { cleanAmountInput } from '../lib/format';
 import { invalidateFinancial, useIdempotentKey } from '../lib/queries';
-import type { AccountType } from '../lib/types';
-import { Alert, Button, ButtonLink, Card, Field, PageHeader, SelectInput, Skeleton, TextArea, TextInput } from '../components/ui';
+import { Alert, Button, ButtonLink, Card, Field, PageHeader, Skeleton, TextInput } from '../components/ui';
 
 interface FormState {
   name: string;
-  type: AccountType;
-  phone: string;
-  email: string;
-  address: string;
-  openingBalance: string;
-  notes: string;
+  password: string;
 }
 
-const EMPTY: FormState = { name: '', type: 'CUSTOMER', phone: '', email: '', address: '', openingBalance: '', notes: '' };
+const EMPTY: FormState = {
+  name: '',
+  password: '',
+};
 
 export default function AccountFormPage() {
   const { id } = useParams();
@@ -34,6 +31,7 @@ export default function AccountFormPage() {
   });
 
   const [form, setForm] = useState<FormState>(EMPTY);
+  const [showPassword, setShowPassword] = useState(true);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState | 'form', string>>>({});
   const [loadedId, setLoadedId] = useState<number | null>(null);
 
@@ -42,18 +40,12 @@ export default function AccountFormPage() {
     const a = existing.data.account;
     setForm({
       name: a.name,
-      type: a.type,
-      phone: a.phone ?? '',
-      email: a.email ?? '',
-      address: a.address ?? '',
-      openingBalance: a.openingBalance,
-      notes: a.notes ?? '',
+      password: '',
     });
     setLoadedId(a.id);
   }, [existing.data, loadedId]);
 
   const account = existing.data?.account;
-  const locked = !!account && account.entryCount > 0;
 
   const save = useMutation({
     mutationFn: async (body: Record<string, unknown>) => {
@@ -64,7 +56,13 @@ export default function AccountFormPage() {
       idempotency.reset();
       invalidateFinancial(qc, result.account.id);
       void qc.invalidateQueries({ queryKey: ['account', result.account.id] });
-      void navigate(`/accounts/${result.account.id}`, { state: { flash: editing ? 'Account updated.' : 'Account created.' } });
+      void navigate('/accounts', {
+        state: {
+          flash: editing
+            ? `User "${result.account.name}" updated successfully.`
+            : `User "${result.account.name}" created! Login Name: ${result.account.name} | Password: ${form.password}`,
+        },
+      });
     },
     onError: (error) => {
       if (error instanceof ApiError && error.details?.length) {
@@ -75,7 +73,7 @@ export default function AccountFormPage() {
         setErrors(next);
         if (Object.keys(next).length === 0) setErrors({ form: error.message });
       } else {
-        setErrors({ form: error instanceof ApiError ? error.message : 'Could not save the account. Please try again.' });
+        setErrors({ form: error instanceof ApiError ? error.message : 'Could not save user. Please try again.' });
       }
     },
   });
@@ -84,169 +82,124 @@ export default function AccountFormPage() {
     return (
       <div className="space-y-4">
         <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-96" />
+        <Skeleton className="h-64" />
       </div>
     );
   }
   if (editing && existing.isError) {
-    return <Alert tone="error" title="Account not found">{existing.error.message}</Alert>;
+    return <Alert tone="error" title="User not found">{existing.error.message}</Alert>;
   }
 
-  const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }));
+  const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
+    setForm((f) => ({ ...f, [key]: value }));
+    setErrors((e) => ({ ...e, [key]: undefined, form: undefined }));
+  };
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const next: typeof errors = {};
-    if (form.name.trim().length < 2) next.name = 'Enter the name (at least 2 characters).';
-    let opening: string | null = null;
-    if (!(editing && locked)) {
-      opening = cleanAmountInput(form.openingBalance || '0');
-      if (opening === null) next.openingBalance = 'Enter an amount with up to 2 decimals, for example 2500 or 2500.50.';
+    const cleanName = form.name.trim();
+    if (cleanName.length < 2) next.name = 'Enter the user’s name (at least 2 characters).';
+
+    if (!editing && !form.password) {
+      next.password = 'Enter a password for this user (at least 4 characters).';
+    } else if (form.password && form.password.length < 4) {
+      next.password = 'Password must be at least 4 characters.';
     }
-    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) next.email = 'Enter a valid email address.';
+
     setErrors(next);
     if (Object.keys(next).length > 0) return;
 
-    const body: Record<string, unknown> = {
-      name: form.name.trim(),
-      phone: form.phone.trim() || null,
-      email: form.email.trim() || null,
-      address: form.address.trim() || null,
-      notes: form.notes.trim() || null,
-    };
-    if (!(editing && locked)) {
-      body.type = form.type;
-      body.openingBalance = opening;
-    }
     if (editing) {
-      // Only send changed fields so unchanged values are not rewritten.
-      const original = account!;
-      const changed: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(body)) {
-        const before = (original as unknown as Record<string, unknown>)[key];
-        if ((before ?? null) !== (value ?? null)) changed[key] = value;
-      }
-      if (Object.keys(changed).length === 0) {
-        void navigate(`/accounts/${accountId}`);
-        return;
-      }
+      const changed: Record<string, unknown> = {
+        name: cleanName,
+        username: cleanName,
+      };
+      if (form.password) changed.password = form.password;
       save.mutate(changed);
     } else {
-      save.mutate(body);
+      save.mutate({
+        name: cleanName,
+        type: 'CUSTOMER',
+        username: cleanName,
+        password: form.password,
+        openingBalance: '0.00',
+      });
     }
   };
 
-  const typeHint =
-    form.type === 'CUSTOMER'
-      ? 'Customers owe you money. Their opening balance is a receivable.'
-      : 'Suppliers are people you owe money to. Their opening balance is a payable.';
-
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-lg space-y-6">
       <PageHeader
-        title={editing ? `Edit ${account?.name ?? 'account'}` : 'New account'}
-        description={editing ? 'Account code is assigned automatically and cannot be changed.' : 'Add a customer or supplier. The account code is assigned automatically.'}
-        actions={<ButtonLink to={editing ? `/accounts/${accountId}` : '/accounts'}>Cancel</ButtonLink>}
+        title={editing ? `Edit User: ${account?.name ?? ''}` : 'Create New User'}
+        description={
+          editing
+            ? 'Update the user’s name or set a new password.'
+            : 'Sirf User ka Naam aur Password daalein — user direct create ho jayega.'
+        }
+        actions={<ButtonLink to="/accounts">Cancel</ButtonLink>}
       />
 
-      {locked && (
-        <Alert tone="warning" title="This account already has transactions">
-          The type and opening balance are locked so the history stays accurate. You can still change the name, contact details and notes. To correct a balance, post an adjustment transaction.
-        </Alert>
-      )}
-
       <Card>
-        <form className="space-y-6" onSubmit={submit} noValidate>
+        <form className="space-y-5" onSubmit={submit} noValidate>
           {errors.form && <Alert tone="error">{errors.form}</Alert>}
 
-          <fieldset className="space-y-2" disabled={locked}>
-            <legend className="text-sm font-medium text-slate-700">Account type</legend>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {(['CUSTOMER', 'SUPPLIER'] as const).map((t) => (
-                <label
-                  key={t}
-                  className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${form.type === t ? 'border-indigo-500 bg-indigo-50/50' : 'border-slate-200 hover:bg-slate-50'} ${locked ? 'opacity-70' : ''}`}
-                >
-                  <input type="radio" name="type" value={t} checked={form.type === t} onChange={() => set('type', t)} className="mt-1 accent-indigo-600" />
-                  <span>
-                    <span className="block text-sm font-medium text-slate-900">{t === 'CUSTOMER' ? 'Customer' : 'Supplier'}</span>
-                    <span className="block text-xs text-slate-600">{t === 'CUSTOMER' ? 'Receivable: money they owe you' : 'Payable: money you owe them'}</span>
-                  </span>
-                </label>
-              ))}
-            </div>
-            <p className="text-xs text-slate-500">{typeHint}</p>
-          </fieldset>
-
-          <div className="grid gap-5 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <Field label="Name" required error={errors.name}>
-                {(fid, describedBy) => (
-                  <TextInput id={fid} value={form.name} onChange={(e) => set('name', e.target.value)} maxLength={150} invalid={!!errors.name} aria-describedby={describedBy} autoFocus={!editing} />
-                )}
-              </Field>
-            </div>
-            <Field label="Phone" error={errors.phone} hint="Digits, spaces, + - ( ) only.">
-              {(fid, describedBy) => (
-                <TextInput id={fid} type="tel" value={form.phone} onChange={(e) => set('phone', e.target.value)} maxLength={30} invalid={!!errors.phone} aria-describedby={describedBy} autoComplete="off" />
-              )}
-            </Field>
-            <Field label="Email" error={errors.email}>
-              {(fid, describedBy) => (
-                <TextInput id={fid} type="email" value={form.email} onChange={(e) => set('email', e.target.value)} maxLength={190} invalid={!!errors.email} aria-describedby={describedBy} autoComplete="off" />
-              )}
-            </Field>
-            <div className="sm:col-span-2">
-              <Field label="Address" error={errors.address}>
-                {(fid, describedBy) => (
-                  <TextArea id={fid} value={form.address} onChange={(e) => set('address', e.target.value)} maxLength={1000} rows={2} aria-describedby={describedBy} />
-                )}
-              </Field>
-            </div>
-            <Field
-              label={`Opening balance (${form.type === 'CUSTOMER' ? 'receivable' : 'payable'})`}
-              error={errors.openingBalance}
-              hint={
-                locked
-                  ? 'Locked after the first transaction.'
-                  : 'Amount owed at the start. Leave as 0 if nothing is owed yet. Shown on the account as a DUE balance.'
-              }
-            >
-              {(fid, describedBy) => (
-                <TextInput
-                  id={fid}
-                  inputMode="decimal"
-                  placeholder="0.00"
-                  value={form.openingBalance}
-                  onChange={(e) => set('openingBalance', e.target.value)}
-                  disabled={locked}
-                  invalid={!!errors.openingBalance}
-                  aria-describedby={describedBy}
-                  autoComplete="off"
-                />
-              )}
-            </Field>
-            <Field label="Opening side" hint="Set automatically from the account type.">
-              {(fid) => (
-                <SelectInput id={fid} value={form.type === 'CUSTOMER' ? 'RECEIVABLE' : 'PAYABLE'} disabled>
-                  <option value="RECEIVABLE">Receivable (customer owes you)</option>
-                  <option value="PAYABLE">Payable (you owe supplier)</option>
-                </SelectInput>
-              )}
-            </Field>
-            <div className="sm:col-span-2">
-              <Field label="Notes" error={errors.notes}>
-                {(fid, describedBy) => (
-                  <TextArea id={fid} value={form.notes} onChange={(e) => set('notes', e.target.value)} maxLength={2000} rows={3} aria-describedby={describedBy} />
-                )}
-              </Field>
-            </div>
+          <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
+            <UserPlus className="h-4 w-4 text-indigo-600" />
+            <h2 className="text-sm font-semibold text-slate-900">User Name & Password</h2>
           </div>
 
-          <div className="flex flex-col-reverse gap-2 border-t border-slate-200 pt-6 sm:flex-row sm:justify-end">
-            <ButtonLink to={editing ? `/accounts/${accountId}` : '/accounts'}>Cancel</ButtonLink>
+          <Field label="User Name (Naam)" required error={errors.name}>
+            {(fid, describedBy) => (
+              <TextInput
+                id={fid}
+                placeholder="e.g. Rahul"
+                value={form.name}
+                onChange={(e) => set('name', e.target.value)}
+                maxLength={150}
+                invalid={!!errors.name}
+                aria-describedby={describedBy}
+                autoFocus
+              />
+            )}
+          </Field>
+
+          <Field
+            label={editing ? 'New Password (leave blank to keep same)' : 'Password'}
+            required={!editing}
+            error={errors.password}
+            hint="Minimum 4 characters"
+          >
+            {(fid, describedBy) => (
+              <div className="relative">
+                <TextInput
+                  id={fid}
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="e.g. rahul123"
+                  value={form.password}
+                  onChange={(e) => set('password', e.target.value)}
+                  maxLength={200}
+                  invalid={!!errors.password}
+                  aria-describedby={describedBy}
+                  autoComplete="new-password"
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-800"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            )}
+          </Field>
+
+          <div className="flex flex-col-reverse gap-2 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
+            <ButtonLink to="/accounts">Cancel</ButtonLink>
             <Button type="submit" loading={save.isPending}>
-              {editing ? 'Save changes' : 'Create account'}
+              {editing ? 'Save Changes' : 'Create User'}
             </Button>
           </div>
         </form>

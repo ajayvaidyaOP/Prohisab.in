@@ -23,7 +23,7 @@ export const errors = {
   unauthorized: (message = 'Please sign in to continue.') => new AppError(401, 'UNAUTHORIZED', message),
   forbidden: (message = 'You do not have permission to do this.') => new AppError(403, 'FORBIDDEN', message),
   notFound: (message = 'The requested record was not found.') => new AppError(404, 'NOT_FOUND', message),
-  conflict: (code: string, message: string) => new AppError(409, code, message),
+  conflict: (code: string, message: string, details?: ErrorDetail[]) => new AppError(409, code, message, details),
   unprocessable: (code: string, message: string, details?: ErrorDetail[]) => new AppError(422, code, message, details),
   tooManyRequests: (message = 'Too many requests. Please wait a few minutes and try again.') =>
     new AppError(429, 'RATE_LIMITED', message),

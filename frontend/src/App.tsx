@@ -1,6 +1,6 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import { Route, Routes } from 'react-router';
-import { RequireAuth, SessionWatcher } from './lib/auth';
+import { RequireAuth, SessionWatcher, useMe } from './lib/auth';
 import { AppLayout } from './components/AppLayout';
 import { PageSkeleton } from './components/PageSkeleton';
 import { ButtonLink } from './components/ui';
@@ -8,6 +8,7 @@ import { ButtonLink } from './components/ui';
 // Secondary screens are loaded on demand so the first load stays small.
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const UserPortalPage = lazy(() => import('./pages/UserPortalPage'));
 const AccountsPage = lazy(() => import('./pages/AccountsPage'));
 const AccountFormPage = lazy(() => import('./pages/AccountFormPage'));
 const AccountDetailPage = lazy(() => import('./pages/AccountDetailPage'));
@@ -15,6 +16,22 @@ const StatementPage = lazy(() => import('./pages/StatementPage'));
 const NewTransactionPage = lazy(() => import('./pages/NewTransactionPage'));
 const TransactionsPage = lazy(() => import('./pages/TransactionsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+
+function HomeRouter() {
+  const me = useMe();
+  if (me.data?.role === 'USER') {
+    return <UserPortalPage />;
+  }
+  return <DashboardPage />;
+}
+
+function AdminOnly({ children }: { children: ReactNode }) {
+  const me = useMe();
+  if (me.data?.role === 'USER') {
+    return <UserPortalPage />;
+  }
+  return <>{children}</>;
+}
 
 function NotFound() {
   return (
@@ -54,17 +71,17 @@ export default function App() {
             index
             element={
               <Suspense fallback={<PageSkeleton />}>
-                <DashboardPage />
+                <HomeRouter />
               </Suspense>
             }
           />
-          <Route path="accounts" element={<Suspense fallback={<PageSkeleton />}><AccountsPage /></Suspense>} />
-          <Route path="accounts/new" element={<Suspense fallback={<PageSkeleton />}><AccountFormPage /></Suspense>} />
-          <Route path="accounts/:id" element={<Suspense fallback={<PageSkeleton />}><AccountDetailPage /></Suspense>} />
-          <Route path="accounts/:id/edit" element={<Suspense fallback={<PageSkeleton />}><AccountFormPage /></Suspense>} />
-          <Route path="transactions" element={<Suspense fallback={<PageSkeleton />}><TransactionsPage /></Suspense>} />
-          <Route path="transactions/new" element={<Suspense fallback={<PageSkeleton />}><NewTransactionPage /></Suspense>} />
-          <Route path="settings" element={<Suspense fallback={<PageSkeleton />}><SettingsPage /></Suspense>} />
+          <Route path="accounts" element={<Suspense fallback={<PageSkeleton />}><AdminOnly><AccountsPage /></AdminOnly></Suspense>} />
+          <Route path="accounts/new" element={<Suspense fallback={<PageSkeleton />}><AdminOnly><AccountFormPage /></AdminOnly></Suspense>} />
+          <Route path="accounts/:id" element={<Suspense fallback={<PageSkeleton />}><AdminOnly><AccountDetailPage /></AdminOnly></Suspense>} />
+          <Route path="accounts/:id/edit" element={<Suspense fallback={<PageSkeleton />}><AdminOnly><AccountFormPage /></AdminOnly></Suspense>} />
+          <Route path="transactions" element={<Suspense fallback={<PageSkeleton />}><AdminOnly><TransactionsPage /></AdminOnly></Suspense>} />
+          <Route path="transactions/new" element={<Suspense fallback={<PageSkeleton />}><AdminOnly><NewTransactionPage /></AdminOnly></Suspense>} />
+          <Route path="settings" element={<Suspense fallback={<PageSkeleton />}><AdminOnly><SettingsPage /></AdminOnly></Suspense>} />
           <Route path="*" element={<NotFound />} />
         </Route>
         {/* Printable statement: signed in, but without the app navigation so it prints cleanly. */}
@@ -73,7 +90,9 @@ export default function App() {
           element={
             <RequireAuth>
               <Suspense fallback={<PageSkeleton />}>
-                <StatementPage />
+                <AdminOnly>
+                  <StatementPage />
+                </AdminOnly>
               </Suspense>
             </RequireAuth>
           }

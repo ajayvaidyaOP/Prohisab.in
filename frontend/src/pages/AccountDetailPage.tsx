@@ -1,308 +1,789 @@
-import { useEffect, useState } from 'react';
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useLocation, useParams, useSearchParams } from 'react-router';
-import { Download, Pencil, Printer, Plus, RotateCcw, Power } from 'lucide-react';
-import { api, ApiError } from '../lib/api';
-import { formatAmount, formatDate, formatPlain } from '../lib/format';
-import { invalidateFinancial, useDebouncedValue, useSettings } from '../lib/queries';
-import { ReverseDialog, type ReversibleEntry } from '../components/ReverseDialog';
-import { Alert, Badge, BalanceBadge, Button, ButtonLink, Card, Dialog, EmptyState, ErrorState, Field, PageHeader, Pagination, Skeleton, StatCard, TextInput } from '../components/ui';
-
-const PAGE_SIZE = 50;
+import { useMemo, useState, type FormEvent } from 'react';
+import { useLocation, useParams } from 'react-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { api, ApiError, newIdempotencyKey } from '../lib/api';
+import { formatAmount, formatDate, getMonthRange, PAYMENT_METHOD_OPTIONS } from '../lib/format';
+import { invalidateFinancial, useSettings } from '../lib/queries';
+import type { LedgerEntry, PaymentMethod } from '../lib/types';
+import { ReverseDialog } from '../components/ReverseDialog';
+import {
+  Alert,
+  Badge,
+  Button,
+  ButtonLink,
+  Card,
+  Dialog,
+  EmptyState,
+  ErrorState,
+  Field,
+  PageHeader,
+  Pagination,
+  SelectInput,
+  SkeletonRows,
+  TextInput,
+} from '../components/ui';
 
 export default function AccountDetailPage() {
-  const { id } = useParams();
+  const { id } = useParams<{ id: string }>();
   const accountId = Number(id);
-  const [params, setParams] = useSearchParams();
   const location = useLocation();
-  const qc = useQueryClient();
+  const navState = location.state as
+    | { flash?: string; savedCredentials?: { name: string; username: string; password: string } }
+    | null;
+
+  const queryClient = useQueryClient();
   const settings = useSettings();
   const symbol = settings.data?.business.currencySymbol ?? '₹';
+  const today = settings.data?.today ?? new Date().toISOString().slice(0, 10);
 
-  const from = params.get('from') ?? '';
-  const to = params.get('to') ?? '';
-  const search = params.get('search') ?? '';
-  const page = Math.max(1, Number(params.get('page') ?? '1') || 1);
-  const debouncedSearch = useDebouncedValue(search, 300);
+  const [flashMessage, setFlashMessage] = useState<string | null>(navState?.flash ?? null);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [reversing, setReversing] = useState<LedgerEntry | null>(null);
+  const [confirmDeactivate, setConfirmDeactivate] = useState(false);
 
-  const [flash, setFlash] = useState<string | null>((location.state as { flash?: string } | null)?.flash ?? null);
-  const [reverseEntry, setReverseEntry] = useState<ReversibleEntry | null>(null);
-  const [confirmStatus, setConfirmStatus] = useState(false);
+  // Quick Entry / Settlement Form State
+  const [quickMode, setQuickMode] = useState<'SETTLE' | 'ADD_PAID'>('SETTLE');
+  const [quickAmount, setQuickAmount] = useState('');
+  const [quickDate, setQuickDate] = useState(today);
+  const [quickMethod, setQuickMethod] = useState<PaymentMethod>('UPI');
+  const [quickNotes, setQuickNotes] = useState('');
+  const [quickRef, setQuickRef] = useState('');
+  const [quickError, setQuickError] = useState<string | null>(null);
+  const [idempotencyKey, setIdempotencyKey] = useState(() => newIdempotencyKey());
 
-  useEffect(() => {
-    if (!flash) return;
-    const t = window.setTimeout(() => setFlash(null), 5000);
-    return () => window.clearTimeout(t);
-  }, [flash]);
+  // Reject Modal State
+  const [rejectTarget, setRejectTarget] = useState<LedgerEntry | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectError, setRejectError] = useState<string | null>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
-  const update = (changes: Record<string, string>) => {
-    const next = new URLSearchParams(params);
-    for (const [k, v] of Object.entries(changes)) {
-      if (v) next.set(k, v);
-      else next.delete(k);
+  const handleDownloadPdf = async () => {
+    if (!ledgerQuery.data) return;
+    try {
+      setDownloadingPdf(true);
+      await api.ledger.downloadPdf(accountId, ledgerQuery.data.account.name, {
+        from: from || undefined,
+        to: to || undefined,
+        search: search.trim() || undefined,
+      });
+    } catch (err) {
+      setFlashMessage(err instanceof ApiError ? err.message : 'Could not download PDF.');
+    } finally {
+      setDownloadingPdf(false);
     }
-    if (!('page' in changes)) next.delete('page');
-    setParams(next, { replace: true });
   };
 
-  const query = useQuery({
-    queryKey: ['ledger', accountId, { from, to, search: debouncedSearch, page }],
-    queryFn: () => api.ledger.page(accountId, { from: from || undefined, to: to || undefined, search: debouncedSearch || undefined, page, pageSize: PAGE_SIZE }),
-    placeholderData: keepPreviousData,
+  const filters = useMemo(
+    () => ({ from: from || undefined, to: to || undefined, search: search.trim() || undefined, page, pageSize: 25 }),
+    [from, to, search, page],
+  );
+
+  const ledgerQuery = useQuery({
+    queryKey: ['ledger', accountId, filters],
+    queryFn: () => api.ledger.page(accountId, filters),
     enabled: Number.isFinite(accountId),
   });
 
-  const toggleStatus = useMutation({
+  const statusMutation = useMutation({
     mutationFn: (isActive: boolean) => api.accounts.setStatus(accountId, isActive),
-    onSuccess: (result) => {
-      invalidateFinancial(qc, accountId);
-      setConfirmStatus(false);
-      setFlash(result.account.isActive ? 'Account reactivated.' : 'Account deactivated. Its history is kept.');
+    onSuccess: (res) => {
+      invalidateFinancial(queryClient, accountId);
+      setFlashMessage(res.account.isActive ? 'User reactivated.' : 'User deactivated.');
+      setConfirmDeactivate(false);
+    },
+    onError: (err) => setFlashMessage(err instanceof Error ? err.message : 'Could not update status.'),
+  });
+
+  const quickEntryMutation = useMutation({
+    mutationFn: () => {
+      const acctType = ledgerQuery.data?.account.type ?? 'CUSTOMER';
+      const txType =
+        quickMode === 'SETTLE'
+          ? acctType === 'SUPPLIER'
+            ? 'PAYMENT_MADE'
+            : 'PAYMENT_RECEIVED'
+          : acctType === 'SUPPLIER'
+            ? 'CREDIT_PURCHASE'
+            : 'CREDIT_SALE';
+      return api.transactions.create(
+        {
+          accountId,
+          type: txType,
+          entryDate: quickDate,
+          amount: quickAmount,
+          paymentMethod: quickMethod,
+          referenceNumber: quickRef.trim() || null,
+          notes:
+            quickNotes.trim() ||
+            (quickMode === 'SETTLE' ? 'Settlement recorded by Admin' : 'Confirmed credit entry added by Admin'),
+        },
+        idempotencyKey,
+      );
+    },
+    onSuccess: (res) => {
+      invalidateFinancial(queryClient, accountId);
+      setFlashMessage(
+        quickMode === 'SETTLE'
+          ? `Recorded ${formatAmount(res.transaction.amount, symbol)} settlement.`
+          : `Added ${formatAmount(res.transaction.amount, symbol)} confirmed credit entry.`,
+      );
+      setQuickAmount('');
+      setQuickNotes('');
+      setQuickRef('');
+      setQuickError(null);
+      setIdempotencyKey(newIdempotencyKey());
+    },
+    onError: (err) => {
+      setQuickError(err instanceof ApiError ? err.message : 'Could not save entry.');
     },
   });
 
-  if (query.isPending && !query.data) {
+  const approveMutation = useMutation({
+    mutationFn: (entryId: number) => api.transactions.approve(entryId, newIdempotencyKey()),
+    onSuccess: (res) => {
+      invalidateFinancial(queryClient, accountId);
+      setFlashMessage(
+        `Approved entry #${res.transaction.id} (${formatAmount(res.transaction.amount, symbol)}).`,
+      );
+    },
+    onError: (err) => {
+      setFlashMessage(err instanceof ApiError ? err.message : 'Could not approve entry.');
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: () =>
+      api.transactions.reject(rejectTarget!.id, { reason: rejectReason.trim() }, newIdempotencyKey()),
+    onSuccess: (res) => {
+      invalidateFinancial(queryClient, accountId);
+      setFlashMessage(`Rejected entry #${res.transaction.id}.`);
+      setRejectTarget(null);
+      setRejectReason('');
+      setRejectError(null);
+    },
+    onError: (err) => {
+      setRejectError(err instanceof ApiError ? err.message : 'Could not reject entry.');
+    },
+  });
+
+  const onQuickSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    setQuickError(null);
+    if (!quickAmount.trim() || Number(quickAmount) <= 0) {
+      setQuickError('Enter a valid amount greater than 0.');
+      return;
+    }
+    quickEntryMutation.mutate();
+  };
+
+  const onRejectSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    setRejectError(null);
+    if (rejectReason.trim().length < 2) {
+      setRejectError('Please enter a short reason for rejection (at least 2 characters).');
+      return;
+    }
+    rejectMutation.mutate();
+  };
+
+  if (ledgerQuery.isPending) {
     return (
-      <div className="space-y-6" role="status" aria-label="Loading account">
-        <Skeleton className="h-8 w-72" />
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }, (_, i) => (
-            <Skeleton key={i} className="h-24" />
-          ))}
-        </div>
-        <Skeleton className="h-96" />
-      </div>
+      <Card padded={false}>
+        <SkeletonRows rows={6} cols={5} />
+      </Card>
     );
   }
-  if (query.isError) {
-    if (query.error instanceof ApiError && query.error.status === 404) {
-      return <EmptyState title="Account not found" description="It may have been removed, or the link is incorrect." action={<ButtonLink to="/accounts">Back to accounts</ButtonLink>} />;
-    }
-    return <ErrorState message={query.error.message} onRetry={() => void query.refetch()} />;
+  if (ledgerQuery.isError || !ledgerQuery.data) {
+    return (
+      <ErrorState
+        message={ledgerQuery.error instanceof Error ? ledgerQuery.error.message : 'Could not load user ledger.'}
+        onRetry={() => void ledgerQuery.refetch()}
+      />
+    );
   }
 
-  const data = query.data;
-  const account = data.account;
-  const isCustomer = account.type === 'CUSTOMER';
-  const hasFilters = !!(from || to || search);
-  const filtered = data.filters.from || data.filters.to || data.filters.search;
-
-  const startingLabel = from ? `Balance brought forward (before ${formatDate(from)})` : 'Opening balance';
-  const startingAmount = from ? data.balanceBroughtForward.amount : data.openingBalance.amount;
-
-  const printHref = `/accounts/${accountId}/statement${params.toString() ? `?${params.toString()}` : ''}`;
+  const { account, entries, pagination } = ledgerQuery.data;
+  const statementSearch = new URLSearchParams();
+  if (from) statementSearch.set('from', from);
+  if (to) statementSearch.set('to', to);
+  if (search.trim()) statementSearch.set('search', search.trim());
+  const pendingNum = Number(account.pendingBalance);
+  const pendingSubCount = account.pendingSubmissionsCount ?? 0;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title={account.name}
-        description={
-          <span className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-xs">{account.accountCode}</span>
-            <Badge tone={isCustomer ? 'sky' : 'indigo'}>{account.typeLabel}</Badge>
-            {account.isActive ? <Badge tone="emerald">Active</Badge> : <Badge tone="slate">Inactive</Badge>}
-            {account.phone && <span>· {account.phone}</span>}
-            {account.email && <span>· {account.email}</span>}
-          </span>
-        }
+        description={`${account.accountCode} · ${account.username ? `Login: @${account.username}` : 'No login username set'}${
+          account.phone ? ` · ${account.phone}` : ''
+        }`}
         actions={
           <>
-            <ButtonLink to={`/transactions/new?accountId=${accountId}`} variant="primary">
-              <Plus className="h-4 w-4" aria-hidden="true" /> Add transaction
-            </ButtonLink>
-            <ButtonLink to={`/accounts/${accountId}/edit`}>
-              <Pencil className="h-4 w-4" aria-hidden="true" /> Edit
-            </ButtonLink>
-            <Button variant="secondary" onClick={() => setConfirmStatus(true)}>
-              <Power className="h-4 w-4" aria-hidden="true" /> {account.isActive ? 'Deactivate' : 'Reactivate'}
+            <Button variant="primary" loading={downloadingPdf} onClick={() => void handleDownloadPdf()}>
+              Download Ledger PDF
             </Button>
+            <ButtonLink to={`/accounts/${account.id}/statement?${statementSearch.toString()}`} variant="secondary">
+              Print View
+            </ButtonLink>
+            <ButtonLink to={`/accounts/${account.id}/edit`} variant="secondary">
+              Edit User / Password
+            </ButtonLink>
+            {account.isActive ? (
+              <Button variant="ghost" onClick={() => setConfirmDeactivate(true)}>
+                Deactivate
+              </Button>
+            ) : (
+              <Button variant="secondary" onClick={() => statusMutation.mutate(true)}>
+                Reactivate
+              </Button>
+            )}
           </>
         }
       />
 
-      {flash && <Alert tone="success">{flash}</Alert>}
-      {!account.isActive && (
-        <Alert tone="warning" title="This account is inactive">
-          History is kept and visible. New transactions are blocked until you reactivate it.
-        </Alert>
-      )}
-      {data.crossSideEntryCount > 0 && (
-        <Alert tone="warning" title="Unusual entries found">
-          {data.crossSideEntryCount} entr{data.crossSideEntryCount === 1 ? 'y is' : 'ies are'} on the opposite side of this account type. Review and correct them with a reversal.
-        </Alert>
-      )}
+      {flashMessage ? <Alert tone="success">{flashMessage}</Alert> : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Opening balance" value={formatAmount(data.openingBalance.amount, symbol)} hint={<span>{data.openingBalance.side === 'RECEIVABLE' ? 'Receivable' : 'Payable'} · set at creation</span>} />
-        <StatCard
-          label={hasFilters ? 'Closing balance (period)' : 'Current balance'}
-          value={formatAmount(data.closingBalance.amount, symbol)}
-          tone={data.closingBalance.status === 'CREDIT' ? 'info' : data.closingBalance.status === 'DUE' ? 'warning' : 'positive'}
-          hint={
-            <span className="flex items-center gap-2">
-              <BalanceBadge status={data.closingBalance.status} accountType={account.type} />
-              <span>{data.closingBalance.side === 'RECEIVABLE' ? 'Receivable' : 'Payable'}</span>
+      {navState?.savedCredentials ? (
+        <Card className="border-2 border-indigo-500 bg-indigo-50/40">
+          <h2 className="text-sm font-semibold text-slate-900">
+            Login Credentials for {navState.savedCredentials.name}
+          </h2>
+          <p className="mt-1 text-xs text-slate-600">
+            Share this username and password with the user so they can sign in and view/submit entries:
+          </p>
+          <div className="mt-2 inline-flex flex-wrap items-center gap-4 rounded-lg border border-indigo-200 bg-white px-4 py-2 text-sm font-mono">
+            <span>
+              Username: <strong>{navState.savedCredentials.username}</strong>
             </span>
-          }
-        />
-        <StatCard label="Total increases" value={formatAmount(data.totals.increases, symbol)} hint={`${data.totals.entryCount} entr${data.totals.entryCount === 1 ? 'y' : 'ies'} in view`} />
-        <StatCard label="Total decreases" value={formatAmount(data.totals.decreases, symbol)} hint={`Net change ${formatAmount(data.totals.net, symbol)}`} />
+            <span>
+              Password: <strong>{navState.savedCredentials.password}</strong>
+            </span>
+          </div>
+        </Card>
+      ) : null}
+
+      {!account.isActive ? (
+        <Alert tone="warning">
+          This user is inactive. Their login and past transactions are preserved, and new transactions are blocked until you reactivate them.
+        </Alert>
+      ) : null}
+
+      {/* 4 Summary Cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="border-l-4 border-l-emerald-600">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Deposit (+ Approved)</div>
+          <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-emerald-700">
+            + {formatAmount(account.totalUserPaid, symbol)}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">Total approved deposits in this user’s ledger</div>
+        </Card>
+
+        <Card className="border-l-4 border-l-rose-600">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Withdrawal (- Approved)</div>
+          <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-rose-700">
+            - {formatAmount(account.totalAdminPaid, symbol)}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">Total approved withdrawals / payouts</div>
+        </Card>
+
+        <Card className="border-l-4 border-l-indigo-600">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Net Balance (Deposit - Withdraw)</div>
+          <div
+            className={`mt-2 font-mono text-2xl font-bold tabular-nums ${
+              pendingNum > 0 ? 'text-indigo-700' : pendingNum < 0 ? 'text-rose-700' : 'text-slate-700'
+            }`}
+          >
+            {formatAmount(account.pendingBalance, symbol)}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            {pendingNum > 0
+              ? 'Available net balance (Deposit − Withdrawal)'
+              : pendingNum === 0
+                ? 'All settled — zero balance'
+                : 'Advance / Overdrawn balance'}
+          </div>
+        </Card>
+
+        <Card className="border-l-4 border-l-amber-500">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pending Review</div>
+          <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-amber-700">
+            {formatAmount(account.pendingSubmissionsAmount ?? '0.00', symbol)}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            {pendingSubCount === 0
+              ? 'No Deposit/Withdrawal requests waiting'
+              : `${pendingSubCount} submitted ${pendingSubCount === 1 ? 'entry' : 'entries'} awaiting review`}
+          </div>
+        </Card>
       </div>
 
-      {account.balance.status === 'CREDIT' && (
-        <Alert tone="info" title={isCustomer ? 'This customer has a credit balance' : 'You have a credit with this supplier'}>
-          The amount is shown as a negative balance and is not hidden. It can be used against future {isCustomer ? 'sales' : 'purchases'}.
-        </Alert>
-      )}
-
-      <Card>
-        <div className="grid gap-3 md:grid-cols-[repeat(2,minmax(0,1fr))_1fr_auto] md:items-end">
-          <Field label="From">{(id) => <TextInput id={id} type="date" value={from} max={to || undefined} onChange={(e) => update({ from: e.target.value })} />}</Field>
-          <Field label="To">{(id) => <TextInput id={id} type="date" value={to} min={from || undefined} onChange={(e) => update({ to: e.target.value })} />}</Field>
-          <Field label="Search">{(id) => <TextInput id={id} type="search" placeholder="Reference, notes, method" value={search} maxLength={100} onChange={(e) => update({ search: e.target.value })} />}</Field>
-          <div className="flex flex-wrap gap-2 print:hidden">
-            {hasFilters && (
-              <Button variant="ghost" onClick={() => setParams(new URLSearchParams(), { replace: true })}>
-                Clear
-              </Button>
-            )}
+      {/* Quick Admin Deposit / Withdrawal Card */}
+      {account.isActive ? (
+        <Card className="border-slate-300 bg-slate-50/60">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setQuickMode('ADD_PAID');
+                  setQuickAmount('');
+                }}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                  quickMode === 'ADD_PAID'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'
+                }`}
+              >
+                + Record Deposit (Add)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setQuickMode('SETTLE');
+                  if (pendingNum > 0 && !quickAmount) setQuickAmount(account.pendingBalance);
+                }}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                  quickMode === 'SETTLE'
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'
+                }`}
+              >
+                - Record Withdrawal / Payout (Deduct)
+              </button>
+            </div>
+            {quickMode === 'SETTLE' && pendingNum > 0 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuickAmount(account.pendingBalance);
+                  setIdempotencyKey(newIdempotencyKey());
+                }}
+                className="text-xs font-medium text-rose-700 hover:underline"
+              >
+                Fill full balance ({formatAmount(account.pendingBalance, symbol)})
+              </button>
+            ) : null}
           </div>
-        </div>
-        <div className="mt-4 flex flex-wrap gap-2 print:hidden">
-          <a href={printHref} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-            <Printer className="h-4 w-4" aria-hidden="true" /> Printable statement
-          </a>
-          <a href={api.ledger.csvUrl(accountId, { from: from || undefined, to: to || undefined, search: debouncedSearch || undefined })} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" download>
-            <Download className="h-4 w-4" aria-hidden="true" /> Export CSV
-          </a>
-          {filtered && <span className="self-center text-xs text-slate-500">Exports and statements use the current filters.</span>}
-        </div>
-      </Card>
 
-      <Card padded={false} className="overflow-hidden">
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 sm:px-6">
-          <h2 className="text-base font-semibold text-slate-900">Ledger</h2>
-          <span className="text-xs text-slate-500">Oldest first · running balance after each entry</span>
-        </div>
-        {query.isFetching && query.data && <div className="h-0.5 animate-pulse bg-indigo-400" aria-hidden="true" />}
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="whitespace-nowrap px-4 py-3">Date</th>
-                <th className="px-4 py-3">Description</th>
-                <th className="hidden px-4 py-3 md:table-cell">Reference</th>
-                <th className="px-4 py-3 text-right">Increase</th>
-                <th className="px-4 py-3 text-right">Decrease</th>
-                <th className="px-4 py-3 text-right">Balance</th>
-                <th className="px-4 py-3 text-right print:hidden"><span className="sr-only">Actions</span></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
-              <tr className="bg-slate-50/60 text-slate-700">
-                <td className="whitespace-nowrap px-4 py-2.5 text-xs" colSpan={5}>
-                  <span className="font-medium">{startingLabel}</span>
-                </td>
-                <td className="px-4 py-2.5 text-right font-semibold tabular-nums" colSpan={1}>
-                  {formatPlain(startingAmount)}
-                </td>
-                <td className="print:hidden" />
-              </tr>
-              {data.entries.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-10">
-                    {hasFilters ? (
-                      <EmptyState title="No entries match these filters." description="Try a wider date range or clear the search." />
-                    ) : (
-                      <EmptyState
-                        title="No transactions yet."
-                        description={isCustomer ? 'Record a credit sale or a payment received to start this customer’s ledger.' : 'Record a credit purchase or a payment made to start this supplier’s ledger.'}
-                        action={
-                          <ButtonLink to={`/transactions/new?accountId=${accountId}`} variant="primary">
-                            <Plus className="h-4 w-4" aria-hidden="true" /> Add transaction
-                          </ButtonLink>
-                        }
-                      />
-                    )}
-                  </td>
-                </tr>
+          {quickError ? (
+            <div className="mt-3">
+              <Alert tone="error">{quickError}</Alert>
+            </div>
+          ) : null}
+
+          <form onSubmit={onQuickSubmit} className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <Field label={quickMode === 'SETTLE' ? 'Withdrawal Amount' : 'Deposit Amount'} required>
+              {(fid) => (
+                <TextInput
+                  id={fid}
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={quickAmount}
+                  onChange={(e) => {
+                    setQuickAmount(e.target.value);
+                    setIdempotencyKey(newIdempotencyKey());
+                  }}
+                />
               )}
-              {data.entries.map((e) => {
-                const increase = e.direction === 'INCREASE';
-                const canReverse = !e.isReversal && !e.isReversed;
-                return (
-                  <tr key={e.id} className={`align-top ${e.isReversal ? 'bg-amber-50/40' : ''} ${e.crossSide ? 'bg-rose-50' : ''}`}>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">{formatDate(e.entryDate)}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="font-medium text-slate-900">{e.typeLabel}</span>
-                        {e.isReversal && <Badge tone="amber">Reversal</Badge>}
-                        {e.isReversed && <Badge tone="slate">Reversed</Badge>}
-                        {e.paymentMethodLabel && <Badge tone="sky">{e.paymentMethodLabel}</Badge>}
-                      </div>
-                      {e.isReversal && e.reversalOfId && <p className="mt-0.5 text-xs text-slate-500">Reverses entry #{e.reversalOfId}</p>}
-                      {e.notes && <p className="mt-0.5 whitespace-pre-line break-words text-xs text-slate-600">{e.notes}</p>}
-                      <p className="mt-0.5 text-[11px] text-slate-400 md:hidden">{e.referenceNumber ?? ''}</p>
-                    </td>
-                    <td className="hidden max-w-[12rem] break-words px-4 py-3 text-slate-600 md:table-cell">{e.referenceNumber ?? '—'}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-amber-800">{increase ? formatPlain(e.amount) : ''}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-emerald-700">{!increase ? formatPlain(e.amount) : ''}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-slate-900">{formatPlain(e.runningBalance)}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right print:hidden">
-                      {canReverse && (
-                        <button type="button" onClick={() => setReverseEntry(e)} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50">
-                          <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" /> Reverse
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-              {data.entries.length > 0 && (
-                <tr className="bg-slate-50 font-semibold text-slate-900">
-                  <td className="px-4 py-3" colSpan={3}>
-                    {filtered ? 'Totals for this view' : 'Totals'} ({data.totals.entryCount} entries)
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-amber-800">{formatPlain(data.totals.increases)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-emerald-700">{formatPlain(data.totals.decreases)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{formatPlain(data.closingBalance.amount)}</td>
-                  <td className="print:hidden" />
-                </tr>
+            </Field>
+            <Field label="Date" required>
+              {(fid) => (
+                <TextInput
+                  id={fid}
+                  type="date"
+                  max={today}
+                  value={quickDate}
+                  onChange={(e) => {
+                    setQuickDate(e.target.value);
+                    setIdempotencyKey(newIdempotencyKey());
+                  }}
+                />
               )}
-            </tbody>
-          </table>
-        </div>
-        <Pagination page={data.pagination.page} totalPages={data.pagination.totalPages} total={data.pagination.total} onChange={(p) => update({ page: String(p) })} />
-        <p className="border-t border-slate-100 px-4 py-2 text-xs text-slate-500 sm:px-6">
-          Balance column: after this entry, on the account's normal side ({data.closingBalance.side === 'RECEIVABLE' ? 'receivable' : 'payable'}). Negative values are credits.
-        </p>
-      </Card>
+            </Field>
+            <Field label="Payment Mode">
+              {(fid) => (
+                <SelectInput
+                  id={fid}
+                  value={quickMethod}
+                  onChange={(e) => {
+                    setQuickMethod(e.target.value as PaymentMethod);
+                    setIdempotencyKey(newIdempotencyKey());
+                  }}
+                >
+                  {PAYMENT_METHOD_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </SelectInput>
+              )}
+            </Field>
+            <Field label="Option / Remark">
+              {(fid) => (
+                <TextInput
+                  id={fid}
+                  placeholder={quickMode === 'SETTLE' ? 'e.g. Cash Withdrawal / UPI Payout' : 'e.g. Cash Deposit / Site Material'}
+                  value={quickNotes}
+                  onChange={(e) => {
+                    setQuickNotes(e.target.value);
+                    setIdempotencyKey(newIdempotencyKey());
+                  }}
+                />
+              )}
+            </Field>
+            <Field label="Ref / UTR No.">
+              {(fid) => (
+                <div className="flex gap-2">
+                  <TextInput
+                    id={fid}
+                    placeholder="Optional"
+                    value={quickRef}
+                    onChange={(e) => {
+                      setQuickRef(e.target.value);
+                      setIdempotencyKey(newIdempotencyKey());
+                    }}
+                  />
+                  <Button
+                    type="submit"
+                    variant={quickMode === 'ADD_PAID' ? 'primary' : 'danger'}
+                    loading={quickEntryMutation.isPending}
+                    className="shrink-0"
+                  >
+                    {quickMode === 'SETTLE' ? '- Withdraw' : '+ Deposit'}
+                  </Button>
+                </div>
+              )}
+            </Field>
+          </form>
+        </Card>
+      ) : null}
 
-      <ReverseDialog entry={reverseEntry} accountId={accountId} open={!!reverseEntry} onClose={() => setReverseEntry(null)} />
-
-      <Dialog
-        open={confirmStatus}
-        title={account.isActive ? 'Deactivate this account?' : 'Reactivate this account?'}
-        onClose={() => setConfirmStatus(false)}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setConfirmStatus(false)} disabled={toggleStatus.isPending}>
+      {/* Reject Modal */}
+      {rejectTarget ? (
+        <Card className="border-2 border-rose-500 bg-rose-50/40">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">
+                Reject Entry #{rejectTarget.id} ({formatAmount(rejectTarget.amount, symbol)})
+              </h2>
+              <p className="text-xs text-slate-600">
+                Provide a reason so {account.name} can see why this entry was rejected.
+              </p>
+            </div>
+            <Button variant="ghost" onClick={() => setRejectTarget(null)}>
               Cancel
             </Button>
-            <Button variant={account.isActive ? 'danger' : 'primary'} loading={toggleStatus.isPending} onClick={() => toggleStatus.mutate(!account.isActive)}>
-              {account.isActive ? 'Deactivate' : 'Reactivate'}
+          </div>
+          {rejectError ? (
+            <div className="mt-3">
+              <Alert tone="error">{rejectError}</Alert>
+            </div>
+          ) : null}
+          <form onSubmit={onRejectSubmit} className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="flex-1">
+              <Field label="Rejection Reason" required>
+                {(fid) => (
+                  <TextInput
+                    id={fid}
+                    placeholder="e.g. Incorrect bill amount / Duplicate submission"
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                  />
+                )}
+              </Field>
+            </div>
+            <Button type="submit" variant="danger" loading={rejectMutation.isPending}>
+              Confirm Reject
+            </Button>
+          </form>
+        </Card>
+      ) : null}
+
+      {/* Filters + 1-Click Month Filter Buttons */}
+      <Card>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Quick Filter:</span>
+            <button
+              type="button"
+              onClick={() => {
+                setFrom('');
+                setTo('');
+                setPage(1);
+              }}
+              className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+                !from && !to ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              All Time
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const r = getMonthRange(today, 0);
+                setFrom(r.from);
+                setTo(r.to);
+                setPage(1);
+              }}
+              className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+                from === getMonthRange(today, 0).from ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              This Month ({getMonthRange(today, 0).label})
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const r = getMonthRange(today, -1);
+                setFrom(r.from);
+                setTo(r.to);
+                setPage(1);
+              }}
+              className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+                from === getMonthRange(today, -1).from ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              Last Month ({getMonthRange(today, -1).label})
+            </button>
+          </div>
+          <Button variant="secondary" className="!py-1 !px-3 text-xs" loading={downloadingPdf} onClick={() => void handleDownloadPdf()}>
+            Download PDF ({from || to ? `${from || 'Start'} to ${to || today}` : 'Full Ledger'})
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+          <Field label="From date">
+            {(fid) => (
+              <TextInput
+                id={fid}
+                type="date"
+                value={from}
+                onChange={(e) => {
+                  setFrom(e.target.value);
+                  setPage(1);
+                }}
+              />
+            )}
+          </Field>
+          <Field label="To date">
+            {(fid) => (
+              <TextInput
+                id={fid}
+                type="date"
+                value={to}
+                onChange={(e) => {
+                  setTo(e.target.value);
+                  setPage(1);
+                }}
+              />
+            )}
+          </Field>
+          <Field label="Search option or remark">
+            {(fid) => (
+              <TextInput
+                id={fid}
+                placeholder="Option, remark, UPI ref…"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
+              />
+            )}
+          </Field>
+          <div className="flex items-end">
+            {from || to || search ? (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setFrom('');
+                  setTo('');
+                  setSearch('');
+                  setPage(1);
+                }}
+              >
+                Clear filters
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </Card>
+
+      {/* Ledger Entries Table */}
+      <Card padded={false} className="overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-xs text-slate-600">
+          <span>
+            Showing entries in <strong>chronological order (oldest first)</strong> so the running balance reads top-to-bottom.
+          </span>
+          <span>
+            Net Balance: <strong className="font-mono">{formatAmount(account.pendingBalance, symbol)}</strong>
+          </span>
+        </div>
+
+        {entries.length === 0 ? (
+          <div className="p-6">
+            <EmptyState
+              title="No ledger entries yet"
+              description="Use the form above to record a Deposit (+) or Withdrawal (-)."
+            />
+          </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200 text-sm">
+                <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Date</th>
+                    <th className="px-4 py-3">Type</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Option / Remark</th>
+                    <th className="px-4 py-3 text-right">Deposit (+)</th>
+                    <th className="px-4 py-3 text-right">Withdraw (−)</th>
+                    <th className="px-4 py-3 text-right">Net Balance</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {entries.map((e) => {
+                    const status = e.approvalStatus ?? 'APPROVED';
+                    return (
+                      <tr
+                        key={e.id}
+                        className={
+                          e.isReversed || status === 'REJECTED'
+                            ? 'bg-slate-50 text-slate-400'
+                            : status === 'PENDING'
+                              ? 'bg-amber-50/30'
+                              : 'hover:bg-slate-50/60'
+                        }
+                      >
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-700">{formatDate(e.entryDate)}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {e.isReversal ? (
+                              <Badge tone="slate">Reversal</Badge>
+                            ) : e.direction === 'INCREASE' ? (
+                              <Badge tone="indigo">Credit (+)</Badge>
+                            ) : (
+                              <Badge tone="emerald">Settled (−)</Badge>
+                            )}
+                            <span className="text-xs text-slate-400">#{e.id}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {e.isReversed ? (
+                            <Badge tone="slate">Reversed by #{e.reversedById}</Badge>
+                          ) : status === 'PENDING' ? (
+                            <Badge tone="amber">Pending Approval</Badge>
+                          ) : status === 'REJECTED' ? (
+                            <div>
+                              <Badge tone="rose">Rejected</Badge>
+                              {e.rejectionReason ? (
+                                <div className="mt-1 text-xs text-rose-600">Reason: {e.rejectionReason}</div>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <Badge tone="emerald">Approved</Badge>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">
+                          <div>{e.notes || e.description}</div>
+                          <div className="text-xs text-slate-400">
+                            {e.paymentMethodLabel ? `${e.paymentMethodLabel}` : ''}
+                            {e.referenceNumber ? ` · Ref: ${e.referenceNumber}` : ''}
+                          </div>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right font-mono text-indigo-700">
+                          {e.direction === 'INCREASE' ? `+ ${formatAmount(e.amount, symbol)}` : '—'}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right font-mono text-emerald-700">
+                          {e.direction === 'DECREASE' ? `− ${formatAmount(e.amount, symbol)}` : '—'}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right font-mono font-semibold text-slate-900">
+                          {formatAmount(e.runningBalance, symbol)}
+                          {status !== 'APPROVED' ? (
+                            <div className="text-[11px] font-normal text-slate-400">
+                              {status === 'PENDING' ? 'Awaiting approval' : 'Not counted'}
+                            </div>
+                          ) : null}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right">
+                          {status === 'PENDING' ? (
+                            <div className="inline-flex items-center gap-1.5">
+                              <Button
+                                className="!py-1 !px-2 text-xs"
+                                loading={approveMutation.isPending}
+                                onClick={() => approveMutation.mutate(e.id)}
+                              >
+                                ✓ Approve
+                              </Button>
+                              <Button
+                                variant="danger"
+                                className="!py-1 !px-2 text-xs"
+                                onClick={() => {
+                                  setRejectTarget(e);
+                                  setRejectReason('');
+                                  setRejectError(null);
+                                }}
+                              >
+                                ✕ Reject
+                              </Button>
+                            </div>
+                          ) : !e.isReversal && !e.isReversed && status === 'APPROVED' && account.isActive ? (
+                            <button
+                              type="button"
+                              onClick={() => setReversing(e)}
+                              className="text-xs font-medium text-slate-600 hover:text-rose-700"
+                            >
+                              Reverse
+                            </button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <Pagination
+              page={pagination.page}
+              totalPages={pagination.totalPages}
+              total={pagination.total}
+              onChange={setPage}
+            />
+          </>
+        )}
+      </Card>
+
+      <ReverseDialog
+        entry={reversing}
+        accountId={account.id}
+        open={Boolean(reversing)}
+        onClose={() => setReversing(null)}
+      />
+
+      <Dialog
+        open={confirmDeactivate}
+        title={`Deactivate ${account.name}?`}
+        onClose={() => setConfirmDeactivate(false)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setConfirmDeactivate(false)}>
+              Cancel
+            </Button>
+            <Button variant="danger" loading={statusMutation.isPending} onClick={() => statusMutation.mutate(false)}>
+              Deactivate
             </Button>
           </>
         }
       >
-        <p className="text-sm text-slate-700">
-          {account.isActive
-            ? 'Accounts with transactions are never deleted. Deactivating keeps all history and the balance, but blocks new transactions until you reactivate it.'
-            : 'New transactions will be allowed on this account again.'}
+        <p className="text-sm text-slate-600">
+          Their ledger history is kept intact, and you can reactivate them at any time. While inactive, they cannot sign in or add new transactions.
         </p>
-        {toggleStatus.error && <Alert tone="error">{toggleStatus.error.message}</Alert>}
       </Dialog>
-
     </div>
   );
 }

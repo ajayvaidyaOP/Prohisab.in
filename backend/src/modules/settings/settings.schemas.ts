@@ -51,5 +51,15 @@ export const passwordChangeBody = z
     path: ['newPassword'],
   });
 
+export const entryOptionsBody = z
+  .object({
+    options: z
+      .array(z.string().trim().min(1, 'Option cannot be empty.').max(100, 'Option must be 100 characters or fewer.'))
+      .min(1, 'Keep at least one option for users to select.')
+      .max(50, 'Maximum 50 options allowed.'),
+  })
+  .strict();
+
 export type SettingsUpdateBody = z.infer<typeof settingsUpdateBody>;
 export type PasswordChangeBody = z.infer<typeof passwordChangeBody>;
+export type EntryOptionsBody = z.infer<typeof entryOptionsBody>;

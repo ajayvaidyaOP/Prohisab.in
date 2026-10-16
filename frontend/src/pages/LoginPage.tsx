@@ -46,7 +46,7 @@ export default function LoginPage() {
         <div className="mb-6 text-center">
           <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600 text-lg font-bold text-white">L</span>
           <h1 className="mt-4 text-2xl font-semibold text-slate-900">Simple Ledger ERP</h1>
-          <p className="mt-1 text-sm text-slate-600">Sign in to manage customers, suppliers and balances.</p>
+          <p className="mt-1 text-sm text-slate-600">Sign in as Admin or User to view your ledger and add entries.</p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
           <form className="space-y-5" onSubmit={submit} noValidate>
@@ -87,7 +87,9 @@ export default function LoginPage() {
             </Button>
           </form>
         </div>
-        <p className="mt-6 text-center text-xs text-slate-500">Accounts are created by the business owner. Public sign-up is disabled.</p>
+        <p className="mt-6 text-center text-xs text-slate-500">
+          Users can sign in with the Username & Password created by the Administrator.
+        </p>
       </div>
     </div>
   );

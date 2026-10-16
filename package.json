@@ -1,0 +1,25 @@
+{
+  "name": "simple-ledger-erp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Simple Ledger ERP - Full-stack workspace helper for VS Code and cloud deployment",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "setup": "node scripts/run.mjs setup",
+    "install:all": "node scripts/run.mjs setup",
+    "db:setup": "npm --prefix backend run db:setup",
+    "db:setup:demo": "npm --prefix backend run db:setup:demo",
+    "dev": "node scripts/run.mjs dev",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build && npm --prefix backend run build",
+    "start": "npm --prefix backend start",
+    "seed": "npm --prefix backend run seed",
+    "seed:demo": "npm --prefix backend run seed:demo",
+    "typecheck": "npm --prefix backend run typecheck && npm --prefix frontend run typecheck",
+    "test": "npm --prefix backend run test:unit"
+  }
+}

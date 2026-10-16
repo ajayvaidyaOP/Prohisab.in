@@ -1,14 +1,21 @@
 import { randomBytes } from 'node:crypto';
 import { Prisma } from '../../generated/prisma/client.ts';
-import type { Account, AccountType } from '../../generated/prisma/client.ts';
+import type { AccountType } from '../../generated/prisma/client.ts';
 import { prisma, type Tx } from '../../db/prisma.ts';
 import { errors } from '../../lib/errors.ts';
 import { writeAudit } from '../../lib/audit.ts';
 import { formatMoney, money } from '../../lib/money.ts';
+import { hashPassword } from '../../lib/password.ts';
 import { NORMAL_SIDE_BY_ACCOUNT_TYPE } from '../ledger/ledger.rules.ts';
 import { loadBalances } from '../ledger/ledger.queries.ts';
 import { accountCodeFor, serializeAccount } from './accounts.serializers.ts';
 import type { AccountCreateBody, AccountListQuery, AccountOptionsQuery, AccountUpdateBody } from './accounts.schemas.ts';
+
+const accountInclude = {
+  loginUser: { select: { id: true, username: true } },
+} satisfies Prisma.AccountInclude;
+
+type AccountWithLogin = Prisma.AccountGetPayload<{ include: typeof accountInclude }>;
 
 /** Strips LIKE wildcards so user search text is matched literally. */
 function searchTerm(raw: string): string {
@@ -28,6 +35,7 @@ export async function listAccounts(query: AccountListQuery) {
             { accountCode: { contains: term } },
             { phone: { contains: term } },
             { email: { contains: term } },
+            { loginUser: { username: { contains: term } } },
           ],
         }
       : {}),
@@ -43,6 +51,7 @@ export async function listAccounts(query: AccountListQuery) {
     prisma.account.count({ where }),
     prisma.account.findMany({
       where,
+      include: accountInclude,
       orderBy,
       skip: (query.page - 1) * query.pageSize,
       take: query.pageSize,
@@ -67,8 +76,17 @@ export async function accountOptions(query: AccountOptionsQuery) {
     where: {
       isActive: true,
       ...(query.type ? { type: query.type } : {}),
-      ...(term ? { OR: [{ name: { contains: term } }, { accountCode: { contains: term } }] } : {}),
+      ...(term
+        ? {
+            OR: [
+              { name: { contains: term } },
+              { accountCode: { contains: term } },
+              { loginUser: { username: { contains: term } } },
+            ],
+          }
+        : {}),
     },
+    include: accountInclude,
     orderBy: [{ name: 'asc' }, { id: 'asc' }],
     take: query.limit,
   });
@@ -77,14 +95,14 @@ export async function accountOptions(query: AccountOptionsQuery) {
 }
 
 export async function getAccount(id: number) {
-  const account = await prisma.account.findUnique({ where: { id } });
+  const account = await prisma.account.findUnique({ where: { id }, include: accountInclude });
   if (!account) throw errors.notFound('Account not found.');
   const info = await loadBalances(prisma, [id]);
   return serializeAccount(account, info.get(id));
 }
 
-async function findAccountOrThrow(tx: Tx, id: number): Promise<Account> {
-  const account = await tx.account.findUnique({ where: { id } });
+async function findAccountOrThrow(tx: Tx, id: number): Promise<AccountWithLogin> {
+  const account = await tx.account.findUnique({ where: { id }, include: accountInclude });
   if (!account) throw errors.notFound('Account not found.');
   return account;
 }
@@ -112,6 +130,18 @@ function ensureOpeningSide(type: AccountType, requested: 'RECEIVABLE' | 'PAYABLE
 export async function createAccountInTx(tx: Tx, input: AccountCreateBody, actorId: number) {
   ensureOpeningSide(input.type, input.openingBalanceSide);
   const side = NORMAL_SIDE_BY_ACCOUNT_TYPE[input.type];
+  const loginUsername = input.password ? (input.username?.trim() || input.name.trim()) : input.username?.trim();
+
+  if (loginUsername) {
+    const taken = await tx.adminUser.findUnique({ where: { username: loginUsername }, select: { id: true } });
+    if (taken) {
+      throw errors.conflict(
+        'DUPLICATE_USERNAME',
+        `User "${loginUsername}" already exists. Choose a different name.`,
+        [{ field: 'name', message: 'A user with this name already exists.' }],
+      );
+    }
+  }
 
   // Insert with a unique temporary code, then derive the final code from the generated id.
   // This keeps code generation race-free without a separate counter table.
@@ -129,10 +159,25 @@ export async function createAccountInTx(tx: Tx, input: AccountCreateBody, actorI
       isActive: true,
     },
   });
+
+  if (loginUsername && input.password) {
+    const passwordHash = await hashPassword(input.password);
+    await tx.adminUser.create({
+      data: {
+        username: loginUsername,
+        passwordHash,
+        role: 'USER',
+        accountId: created.id,
+      },
+    });
+  }
+
   const account = await tx.account.update({
     where: { id: created.id },
     data: { accountCode: accountCodeFor(input.type, created.id) },
+    include: accountInclude,
   });
+
   await writeAudit(tx, {
     action: 'ACCOUNT_CREATED',
     entityType: 'Account',
@@ -141,6 +186,7 @@ export async function createAccountInTx(tx: Tx, input: AccountCreateBody, actorI
     details: {
       accountCode: account.accountCode,
       name: account.name,
+      username: account.loginUser?.username ?? null,
       type: account.type,
       openingBalance: formatMoney(account.openingBalance),
       openingBalanceSide: account.openingBalanceSide,
@@ -186,6 +232,54 @@ export async function updateAccount(id: number, patch: AccountUpdateBody, actorI
     const nextType = patch.type ?? before.type;
     ensureOpeningSide(nextType, patch.openingBalanceSide);
 
+    if (patch.username && patch.username !== before.loginUser?.username) {
+      const taken = await tx.adminUser.findUnique({ where: { username: patch.username }, select: { id: true } });
+      if (taken && taken.id !== before.loginUser?.id) {
+        throw errors.conflict(
+          'DUPLICATE_USERNAME',
+          `Username "${patch.username}" is already taken. Choose another username.`,
+          [{ field: 'username', message: 'Username is already taken.' }],
+        );
+      }
+    }
+
+    if (before.loginUser) {
+      const loginUpdate: Prisma.AdminUserUpdateInput = {};
+      if (patch.username && patch.username !== before.loginUser.username) {
+        loginUpdate.username = patch.username;
+      }
+      if (patch.password) {
+        loginUpdate.passwordHash = await hashPassword(patch.password);
+        await tx.session.deleteMany({ where: { adminUserId: before.loginUser.id } });
+      }
+      if (Object.keys(loginUpdate).length > 0) {
+        await tx.adminUser.update({
+          where: { id: before.loginUser.id },
+          data: loginUpdate,
+        });
+      }
+    } else if (patch.username || patch.password) {
+      if (!patch.username) {
+        throw errors.badRequest('Enter a username to create login credentials for this user.', [
+          { field: 'username', message: 'Username is required.' },
+        ]);
+      }
+      if (!patch.password) {
+        throw errors.badRequest('Enter a password to create login credentials for this user.', [
+          { field: 'password', message: 'Password is required.' },
+        ]);
+      }
+      const passwordHash = await hashPassword(patch.password);
+      await tx.adminUser.create({
+        data: {
+          username: patch.username,
+          passwordHash,
+          role: 'USER',
+          accountId: id,
+        },
+      });
+    }
+
     const data: Prisma.AccountUpdateInput = {
       ...(patch.name !== undefined ? { name: patch.name } : {}),
       ...(patch.type !== undefined ? { type: patch.type } : {}),
@@ -197,7 +291,7 @@ export async function updateAccount(id: number, patch: AccountUpdateBody, actorI
       openingBalanceSide: NORMAL_SIDE_BY_ACCOUNT_TYPE[nextType],
     };
 
-    const after = await tx.account.update({ where: { id }, data });
+    const after = await tx.account.update({ where: { id }, data, include: accountInclude });
 
     const changes: Record<string, { from: unknown; to: unknown }> = {};
     for (const field of EDITABLE_FIELDS) {
@@ -206,6 +300,12 @@ export async function updateAccount(id: number, patch: AccountUpdateBody, actorI
       if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
         changes[field] = { from: oldValue, to: newValue };
       }
+    }
+    if (before.loginUser?.username !== after.loginUser?.username) {
+      changes.username = { from: before.loginUser?.username ?? null, to: after.loginUser?.username ?? null };
+    }
+    if (patch.password) {
+      changes.password = { from: '***', to: '*** (updated)' };
     }
     if (Object.keys(changes).length > 0) {
       await writeAudit(tx, {
@@ -230,7 +330,10 @@ export async function setAccountStatus(id: number, isActive: boolean, actorId: n
       const info = await loadBalances(tx, [id]);
       return serializeAccount(before, info.get(id));
     }
-    const after = await tx.account.update({ where: { id }, data: { isActive } });
+    const after = await tx.account.update({ where: { id }, data: { isActive }, include: accountInclude });
+    if (!isActive && after.loginUser) {
+      await tx.session.deleteMany({ where: { adminUserId: after.loginUser.id } });
+    }
     await writeAudit(tx, {
       action: isActive ? 'ACCOUNT_REACTIVATED' : 'ACCOUNT_DEACTIVATED',
       entityType: 'Account',
@@ -242,4 +345,3 @@ export async function setAccountStatus(id: number, isActive: boolean, actorId: n
     return serializeAccount(after, info.get(id));
   });
 }
-

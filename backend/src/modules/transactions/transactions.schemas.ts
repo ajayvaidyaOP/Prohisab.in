@@ -40,10 +40,21 @@ export const reverseBody = z
   })
   .strict();
 
+export const rejectBody = z
+  .object({
+    reason: z
+      .string({ error: 'Please provide a reason for rejecting this entry.' })
+      .trim()
+      .min(2, 'Please provide a reason (at least 2 characters).')
+      .max(300, 'Reason must be 300 characters or fewer.'),
+  })
+  .strict();
+
 export const transactionsQuery = z
   .object({
     search: z.string().trim().max(100).optional(),
     type: z.enum(TransactionType).optional(),
+    approvalStatus: z.enum(['PENDING', 'APPROVED', 'REJECTED']).optional(),
     accountId: z.coerce.number().int().positive().optional(),
     from: isoDateField('From date').optional(),
     to: isoDateField('To date').optional(),
@@ -61,4 +72,5 @@ export const transactionsQuery = z
 
 export type CreateTransactionBody = z.infer<typeof createTransactionBody>;
 export type ReverseBody = z.infer<typeof reverseBody>;
+export type RejectBody = z.infer<typeof rejectBody>;
 export type TransactionsQuery = z.infer<typeof transactionsQuery>;

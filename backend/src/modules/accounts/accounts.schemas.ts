@@ -30,11 +30,45 @@ const nameField = z
   .min(2, 'Name must be at least 2 characters.')
   .max(150, 'Name must be 150 characters or fewer.');
 
+const usernameField = z
+  .union([z.string(), z.null()])
+  .optional()
+  .transform((value, ctx) => {
+    const trimmed = value?.trim() ?? '';
+    if (trimmed === '') return undefined;
+    if (trimmed.length < 2 || trimmed.length > 150) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Username must be between 2 and 150 characters.',
+      });
+      return z.NEVER;
+    }
+    return trimmed;
+  });
+
+const passwordField = z
+  .union([z.string(), z.null()])
+  .optional()
+  .transform((value, ctx) => {
+    const raw = value ?? '';
+    if (raw === '') return undefined;
+    if (raw.length < 4 || raw.length > 200) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Password must be at least 4 characters.',
+      });
+      return z.NEVER;
+    }
+    return raw;
+  });
+
 /** openingBalanceSide is optional on input; when provided it must match the account type's normal side (checked in the service). */
 export const accountCreateBody = z
   .object({
     name: nameField,
-    type: accountTypeField,
+    type: accountTypeField.optional().default('CUSTOMER'),
+    username: usernameField,
+    password: passwordField,
     phone: phoneField,
     email: emailField,
     address: optionalText(1000, 'Address'),
@@ -42,12 +76,23 @@ export const accountCreateBody = z
     openingBalanceSide: z.enum(['RECEIVABLE', 'PAYABLE']).optional(),
     notes: optionalText(2000, 'Notes'),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.username && !value.password) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['password'],
+        message: 'Enter a password for this user login.',
+      });
+    }
+  });
 
 export const accountUpdateBody = z
   .object({
     name: nameField.optional(),
     type: accountTypeField.optional(),
+    username: usernameField,
+    password: passwordField,
     phone: phoneField.optional(),
     email: emailField.optional(),
     address: optionalText(1000, 'Address').optional(),

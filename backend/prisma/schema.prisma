@@ -15,6 +15,11 @@ enum AccountType {
   SUPPLIER
 }
 
+enum UserRole {
+  ADMIN
+  USER
+}
+
 enum BalanceSide {
   RECEIVABLE
   PAYABLE
@@ -47,15 +52,25 @@ enum IdempotencyStatus {
   COMPLETED
 }
 
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model AdminUser {
-  id                   Int           @id @default(autoincrement())
-  username             String        @unique @db.VarChar(64)
-  passwordHash         String        @db.VarChar(255)
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
-  sessions             Session[]
-  auditLogs            AuditLog[]
-  createdLedgerEntries LedgerEntry[] @relation("LedgerCreatedBy")
+  id                    Int           @id @default(autoincrement())
+  username              String        @unique @db.VarChar(64)
+  passwordHash          String        @db.VarChar(255)
+  role                  UserRole      @default(ADMIN)
+  accountId             Int?          @unique
+  account               Account?      @relation("AccountLoginUser", fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  sessions              Session[]
+  auditLogs             AuditLog[]
+  createdLedgerEntries  LedgerEntry[] @relation("LedgerCreatedBy")
+  reviewedLedgerEntries LedgerEntry[] @relation("LedgerReviewedBy")
 }
 
 model Session {
@@ -86,6 +101,7 @@ model Account {
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
   ledgerEntries      LedgerEntry[]
+  loginUser          AdminUser?    @relation("AccountLoginUser")
 
   @@index([type, isActive])
   @@index([name])
@@ -106,11 +122,17 @@ model LedgerEntry {
   reversalOfId    Int?            @unique
   reversalOf      LedgerEntry?    @relation("LedgerReversal", fields: [reversalOfId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   reversedBy      LedgerEntry?    @relation("LedgerReversal")
+  approvalStatus  ApprovalStatus  @default(APPROVED)
+  reviewedById    Int?
+  reviewedBy      AdminUser?      @relation("LedgerReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  reviewedAt      DateTime?
+  rejectionReason String?         @db.VarChar(300)
   createdById     Int?
   createdBy       AdminUser?      @relation("LedgerCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
   createdAt       DateTime        @default(now())
 
   @@index([accountId, entryDate, id])
+  @@index([approvalStatus, createdAt])
   @@index([entryDate, type])
   @@index([side, direction, entryDate])
   @@index([type, entryDate])
@@ -149,12 +171,13 @@ model IdempotencyKey {
 }
 
 model AppSetting {
-  id              Int      @id @default(1)
-  businessName    String   @default("My Business") @db.VarChar(150)
-  businessAddress String?  @db.Text
-  businessPhone   String?  @db.VarChar(30)
-  businessEmail   String?  @db.VarChar(190)
-  currencySymbol  String   @default("₹") @db.VarChar(8)
-  timezone        String   @default("Asia/Kolkata") @db.VarChar(64)
-  updatedAt       DateTime @updatedAt
+  id               Int      @id @default(1)
+  businessName     String   @default("My Business") @db.VarChar(150)
+  businessAddress  String?  @db.Text
+  businessPhone    String?  @db.VarChar(30)
+  businessEmail    String?  @db.VarChar(190)
+  currencySymbol   String   @default("₹") @db.VarChar(8)
+  timezone         String   @default("Asia/Kolkata") @db.VarChar(64)
+  userEntryOptions Json?
+  updatedAt        DateTime @updatedAt
 }

@@ -14,6 +14,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prisma:generate": "prisma generate",
     "migrate:deploy": "prisma migrate deploy",
+    "db:setup": "tsx src/scripts/db-setup.ts",
+    "db:setup:demo": "tsx src/scripts/db-setup.ts --demo",
     "seed": "tsx src/scripts/seed.ts",
     "seed:demo": "tsx src/scripts/seed.ts --demo",
     "test": "node --import tsx --test --test-concurrency=1 tests/unit/*.test.ts tests/integration/*.test.ts",

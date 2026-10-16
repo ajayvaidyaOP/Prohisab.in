@@ -7,10 +7,13 @@ CREATE TABLE `AdminUser` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `username` VARCHAR(64) NOT NULL,
     `passwordHash` VARCHAR(255) NOT NULL,
+    `role` ENUM('ADMIN', 'USER') NOT NULL DEFAULT 'ADMIN',
+    `accountId` INTEGER NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
     UNIQUE INDEX `AdminUser_username_key`(`username`),
+    UNIQUE INDEX `AdminUser_accountId_key`(`accountId`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -63,11 +66,16 @@ CREATE TABLE `LedgerEntry` (
     `referenceNumber` VARCHAR(100) NULL,
     `notes` VARCHAR(500) NULL,
     `reversalOfId` INTEGER NULL,
+    `approvalStatus` ENUM('PENDING', 'APPROVED', 'REJECTED') NOT NULL DEFAULT 'APPROVED',
+    `reviewedById` INTEGER NULL,
+    `reviewedAt` DATETIME(3) NULL,
+    `rejectionReason` VARCHAR(300) NULL,
     `createdById` INTEGER NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
     UNIQUE INDEX `LedgerEntry_reversalOfId_key`(`reversalOfId`),
     INDEX `LedgerEntry_accountId_entryDate_id_idx`(`accountId`, `entryDate`, `id`),
+    INDEX `LedgerEntry_approvalStatus_createdAt_idx`(`approvalStatus`, `createdAt`),
     INDEX `LedgerEntry_entryDate_type_idx`(`entryDate`, `type`),
     INDEX `LedgerEntry_side_direction_entryDate_idx`(`side`, `direction`, `entryDate`),
     INDEX `LedgerEntry_type_entryDate_idx`(`type`, `entryDate`),
@@ -118,10 +126,14 @@ CREATE TABLE `AppSetting` (
     `businessEmail` VARCHAR(190) NULL,
     `currencySymbol` VARCHAR(8) NOT NULL DEFAULT '₹',
     `timezone` VARCHAR(64) NOT NULL DEFAULT 'Asia/Kolkata',
+    `userEntryOptions` JSON NULL,
     `updatedAt` DATETIME(3) NOT NULL,
 
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- AddForeignKey
+ALTER TABLE `AdminUser` ADD CONSTRAINT `AdminUser_accountId_fkey` FOREIGN KEY (`accountId`) REFERENCES `Account`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `Session` ADD CONSTRAINT `Session_adminUserId_fkey` FOREIGN KEY (`adminUserId`) REFERENCES `AdminUser`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
@@ -134,6 +146,9 @@ ALTER TABLE `LedgerEntry` ADD CONSTRAINT `LedgerEntry_reversalOfId_fkey` FOREIGN
 
 -- AddForeignKey
 ALTER TABLE `LedgerEntry` ADD CONSTRAINT `LedgerEntry_createdById_fkey` FOREIGN KEY (`createdById`) REFERENCES `AdminUser`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `LedgerEntry` ADD CONSTRAINT `LedgerEntry_reviewedById_fkey` FOREIGN KEY (`reviewedById`) REFERENCES `AdminUser`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `AuditLog` ADD CONSTRAINT `AuditLog_actorId_fkey` FOREIGN KEY (`actorId`) REFERENCES `AdminUser`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;

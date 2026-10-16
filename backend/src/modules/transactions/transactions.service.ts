@@ -6,16 +6,17 @@ import { writeAudit } from '../../lib/audit.ts';
 import { withIdempotency, type IdempotentResult } from '../../lib/idempotency.ts';
 import { formatMoney, money } from '../../lib/money.ts';
 import { dbDateToIso, isoDateToDbDate, todayInTimeZone } from '../../lib/dates.ts';
-import { getSettings } from '../settings/settings.service.ts';
+import { getSettings, DEFAULT_USER_ENTRY_OPTIONS } from '../settings/settings.service.ts';
 import { lockAccount } from '../accounts/accounts.service.ts';
 import { ACCOUNT_TYPE_LABELS, serializeAccount } from '../accounts/accounts.serializers.ts';
 import { loadBalances } from '../ledger/ledger.queries.ts';
 import { PAYMENT_METHOD_LABELS, TRANSACTION_RULES, TYPE_LABELS, isUserTransactionType } from '../ledger/ledger.rules.ts';
-import type { CreateTransactionBody, ReverseBody, TransactionsQuery } from './transactions.schemas.ts';
+import type { CreateTransactionBody, RejectBody, ReverseBody, TransactionsQuery } from './transactions.schemas.ts';
 
 const entryInclude = {
   account: { select: { id: true, accountCode: true, name: true, type: true } },
   reversedBy: { select: { id: true } },
+  reviewedBy: { select: { id: true, username: true } },
 } satisfies Prisma.LedgerEntryInclude;
 
 type EntryWithRelations = Prisma.LedgerEntryGetPayload<{ include: typeof entryInclude }>;
@@ -37,6 +38,10 @@ export function serializeTransaction(entry: EntryWithRelations) {
     reversedById: entry.reversedBy?.id ?? null,
     isReversal: entry.type === 'REVERSAL',
     isReversed: entry.reversedBy !== null,
+    approvalStatus: entry.approvalStatus,
+    reviewedBy: entry.reviewedBy ? { id: entry.reviewedBy.id, username: entry.reviewedBy.username } : null,
+    reviewedAt: entry.reviewedAt ? entry.reviewedAt.toISOString() : null,
+    rejectionReason: entry.rejectionReason,
     account: {
       id: entry.account.id,
       accountCode: entry.account.accountCode,
@@ -50,7 +55,10 @@ export function serializeTransaction(entry: EntryWithRelations) {
 }
 
 async function accountSummary(tx: Tx, accountId: number) {
-  const account = await tx.account.findUniqueOrThrow({ where: { id: accountId } });
+  const account = await tx.account.findUniqueOrThrow({
+    where: { id: accountId },
+    include: { loginUser: { select: { username: true } } },
+  });
   const info = await loadBalances(tx, [accountId]);
   return serializeAccount(account, info.get(accountId));
 }
@@ -64,7 +72,13 @@ function assertNotFuture(entryDate: string, today: string): void {
 }
 
 /** Posts a transaction. The side and direction come from the server rule for the type, never from the client. */
-export async function postTransaction(tx: Tx, input: CreateTransactionBody, actorId: number, today: string) {
+export async function postTransaction(
+  tx: Tx,
+  input: CreateTransactionBody,
+  actorId: number,
+  today: string,
+  actorRole: 'ADMIN' | 'USER' = 'ADMIN',
+) {
   if (!isUserTransactionType(input.type)) throw errors.badRequest('Choose a valid transaction type.');
   const rule = TRANSACTION_RULES[input.type];
 
@@ -90,6 +104,7 @@ export async function postTransaction(tx: Tx, input: CreateTransactionBody, acto
     );
   }
 
+  const approvalStatus = actorRole === 'USER' ? 'PENDING' : 'APPROVED';
   const entry = await tx.ledgerEntry.create({
     data: {
       accountId: input.accountId,
@@ -101,6 +116,9 @@ export async function postTransaction(tx: Tx, input: CreateTransactionBody, acto
       paymentMethod: (input.paymentMethod ?? null) as PaymentMethod | null,
       referenceNumber: input.referenceNumber,
       notes: input.notes,
+      approvalStatus,
+      reviewedById: approvalStatus === 'APPROVED' ? actorId : null,
+      reviewedAt: approvalStatus === 'APPROVED' ? new Date() : null,
       createdById: actorId,
     },
     include: entryInclude,
@@ -120,22 +138,173 @@ export async function postTransaction(tx: Tx, input: CreateTransactionBody, acto
       entryDate: input.entryDate,
       paymentMethod: entry.paymentMethod,
       referenceNumber: entry.referenceNumber,
+      approvalStatus,
     },
   });
 
   return { entry, account: await accountSummary(tx, input.accountId) };
 }
 
-export async function createTransaction(input: CreateTransactionBody, actorId: number, key: string): Promise<IdempotentResult & { replayed: boolean }> {
+export async function createTransaction(
+  input: CreateTransactionBody,
+  actorId: number,
+  key: string,
+  actorRole: 'ADMIN' | 'USER' = 'ADMIN',
+): Promise<IdempotentResult & { replayed: boolean }> {
   const settings = await getSettings();
   const today = todayInTimeZone(settings.timezone);
+  if (actorRole === 'USER') {
+    const allowedOptions = Array.isArray(settings.userEntryOptions) && settings.userEntryOptions.length > 0
+      ? (settings.userEntryOptions as string[])
+      : DEFAULT_USER_ENTRY_OPTIONS;
+    const noteText = (input.notes ?? '').trim();
+    const matchesAllowed = allowedOptions.some(
+      (opt) =>
+        typeof opt === 'string' &&
+        (noteText.toLowerCase() === opt.trim().toLowerCase() ||
+          noteText.toLowerCase().startsWith(`${opt.trim().toLowerCase()} —`) ||
+          noteText.toLowerCase().startsWith(`${opt.trim().toLowerCase()} -`)),
+    );
+    if (!matchesAllowed) {
+      throw errors.unprocessable(
+        'INVALID_USER_OPTION',
+        'Please select a valid option configured by the Administrator.',
+        [{ field: 'notes', message: 'Select an option from the list set by Admin.' }],
+      );
+    }
+  }
   return withIdempotency({
     scope: 'POST /api/transactions',
     key,
-    payload: input,
+    payload: { ...input, actorRole },
     work: async (tx) => {
-      const { entry, account } = await postTransaction(tx, input, actorId, today);
+      const { entry, account } = await postTransaction(tx, input, actorId, today, actorRole);
       return { status: 201, body: { transaction: serializeTransaction(entry), account } };
+    },
+  });
+}
+
+export async function approveTransaction(entryId: number, actorId: number, key: string) {
+  return withIdempotency({
+    scope: `POST /api/transactions/${entryId}/approve`,
+    key,
+    payload: { entryId },
+    work: async (tx) => {
+      const initial = await tx.ledgerEntry.findUnique({ where: { id: entryId }, include: entryInclude });
+      if (!initial) throw errors.notFound('Transaction not found.');
+
+      const account = await lockAccount(tx, initial.accountId);
+      if (!account.isActive) {
+        throw errors.unprocessable('ACCOUNT_INACTIVE', 'This account is inactive. Reactivate it before approving entries.');
+      }
+
+      const entry = await tx.ledgerEntry.findUniqueOrThrow({ where: { id: entryId }, include: entryInclude });
+      if (entry.approvalStatus === 'APPROVED') {
+        return {
+          status: 200,
+          body: {
+            transaction: serializeTransaction(entry),
+            account: await accountSummary(tx, entry.accountId),
+            alreadyApproved: true,
+          },
+        };
+      }
+      if (entry.approvalStatus === 'REJECTED') {
+        throw errors.conflict('ALREADY_REJECTED', 'This entry has already been rejected and cannot be approved.');
+      }
+
+      const updated = await tx.ledgerEntry.update({
+        where: { id: entryId },
+        data: {
+          approvalStatus: 'APPROVED',
+          reviewedById: actorId,
+          reviewedAt: new Date(),
+          rejectionReason: null,
+        },
+        include: entryInclude,
+      });
+
+      await writeAudit(tx, {
+        action: 'LEDGER_ENTRY_APPROVED',
+        entityType: 'LedgerEntry',
+        entityId: updated.id,
+        actorId,
+        details: {
+          accountId: updated.accountId,
+          type: updated.type,
+          amount: formatMoney(updated.amount),
+          entryDate: dbDateToIso(updated.entryDate),
+        },
+      });
+
+      return {
+        status: 200,
+        body: {
+          transaction: serializeTransaction(updated),
+          account: await accountSummary(tx, updated.accountId),
+        },
+      };
+    },
+  });
+}
+
+export async function rejectTransaction(entryId: number, input: RejectBody, actorId: number, key: string) {
+  return withIdempotency({
+    scope: `POST /api/transactions/${entryId}/reject`,
+    key,
+    payload: { entryId, ...input },
+    work: async (tx) => {
+      const initial = await tx.ledgerEntry.findUnique({ where: { id: entryId }, include: entryInclude });
+      if (!initial) throw errors.notFound('Transaction not found.');
+
+      await lockAccount(tx, initial.accountId);
+
+      const entry = await tx.ledgerEntry.findUniqueOrThrow({ where: { id: entryId }, include: entryInclude });
+      if (entry.approvalStatus === 'REJECTED') {
+        return {
+          status: 200,
+          body: {
+            transaction: serializeTransaction(entry),
+            account: await accountSummary(tx, entry.accountId),
+            alreadyRejected: true,
+          },
+        };
+      }
+      if (entry.approvalStatus === 'APPROVED') {
+        throw errors.conflict('ALREADY_APPROVED', 'Approved entries cannot be rejected. Create a reversal instead.');
+      }
+
+      const updated = await tx.ledgerEntry.update({
+        where: { id: entryId },
+        data: {
+          approvalStatus: 'REJECTED',
+          reviewedById: actorId,
+          reviewedAt: new Date(),
+          rejectionReason: input.reason,
+        },
+        include: entryInclude,
+      });
+
+      await writeAudit(tx, {
+        action: 'LEDGER_ENTRY_REJECTED',
+        entityType: 'LedgerEntry',
+        entityId: updated.id,
+        actorId,
+        details: {
+          accountId: updated.accountId,
+          type: updated.type,
+          amount: formatMoney(updated.amount),
+          reason: input.reason,
+        },
+      });
+
+      return {
+        status: 200,
+        body: {
+          transaction: serializeTransaction(updated),
+          account: await accountSummary(tx, updated.accountId),
+        },
+      };
     },
   });
 }
@@ -156,6 +325,9 @@ export async function reverseTransaction(entryId: number, input: ReverseBody, ac
       if (!original) throw errors.notFound('Transaction not found.');
       if (original.type === 'REVERSAL') {
         throw errors.unprocessable('CANNOT_REVERSE_REVERSAL', 'A reversal entry cannot be reversed. Post a new transaction instead.');
+      }
+      if (original.approvalStatus !== 'APPROVED') {
+        throw errors.unprocessable('ENTRY_NOT_APPROVED', 'Only approved entries can be reversed.');
       }
 
       // Lock the account first so concurrent reversals/postings for it are serialized.
@@ -191,6 +363,9 @@ export async function reverseTransaction(entryId: number, input: ReverseBody, ac
           referenceNumber: original.referenceNumber,
           notes: `Reversal of entry #${original.id}. Reason: ${input.reason}`.slice(0, 500),
           reversalOfId: original.id,
+          approvalStatus: 'APPROVED',
+          reviewedById: actorId,
+          reviewedAt: new Date(),
           createdById: actorId,
         },
         include: entryInclude,
@@ -232,6 +407,7 @@ export async function listTransactions(query: TransactionsQuery) {
   const where: Prisma.LedgerEntryWhereInput = {
     ...(query.accountId ? { accountId: query.accountId } : {}),
     ...(query.type ? { type: query.type as TransactionType } : {}),
+    ...(query.approvalStatus ? { approvalStatus: query.approvalStatus } : {}),
     ...(!query.includeReversals ? { type: { not: 'REVERSAL' } } : {}),
     ...(query.from || query.to
       ? {
