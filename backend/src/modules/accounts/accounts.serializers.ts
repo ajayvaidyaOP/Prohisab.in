@@ -1,18 +1,23 @@
 import type { Account, AccountType } from '../../generated/prisma/client.ts';
-import { formatMoney, money, type Money } from '../../lib/money.ts';
-import { describeBalance, type AccountBalances } from '../ledger/ledger.balance.ts';
+import { formatMoney, money, ZERO, type Money } from '../../lib/money.ts';
+import { describeBalance } from '../ledger/ledger.balance.ts';
 import { NORMAL_SIDE_BY_ACCOUNT_TYPE } from '../ledger/ledger.rules.ts';
-import { crossSideBalance, primaryBalance } from '../ledger/ledger.queries.ts';
+import { crossSideBalance, primaryBalance, type AccountAggregateInfo } from '../ledger/ledger.queries.ts';
 
 export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
-  CUSTOMER: 'Customer',
-  SUPPLIER: 'Supplier',
+  CUSTOMER: 'User',
+  SUPPLIER: 'User',
 };
 
-export type BalanceInfo = { balances: AccountBalances; entryCount: number; lastEntryDate: string | null };
+export type BalanceInfo = AccountAggregateInfo;
 
-export function serializeAccount(account: Account, info?: BalanceInfo) {
+type AccountWithOptionalLogin = Account & {
+  loginUser?: { username: string } | null;
+};
+
+export function serializeAccount(account: AccountWithOptionalLogin, info?: BalanceInfo) {
   const normalSide = NORMAL_SIDE_BY_ACCOUNT_TYPE[account.type];
+  const opening = money(account.openingBalance);
   const balances = info?.balances ?? {
     receivable: money(account.openingBalanceSide === 'RECEIVABLE' ? account.openingBalance : 0),
     payable: money(account.openingBalanceSide === 'PAYABLE' ? account.openingBalance : 0),
@@ -20,10 +25,16 @@ export function serializeAccount(account: Account, info?: BalanceInfo) {
   const primary: Money = primaryBalance(account.type, balances);
   const cross: Money = crossSideBalance(account.type, balances);
   const description = describeBalance(primary);
+  const totalUserPaid = info?.totalIncrease ?? opening;
+  const totalAdminPaid = info?.totalDecrease ?? ZERO;
+  const username = account.loginUser?.username ?? null;
+
   return {
     id: account.id,
     accountCode: account.accountCode,
     name: account.name,
+    username,
+    hasLogin: Boolean(username),
     type: account.type,
     typeLabel: ACCOUNT_TYPE_LABELS[account.type],
     phone: account.phone,
@@ -33,6 +44,13 @@ export function serializeAccount(account: Account, info?: BalanceInfo) {
     openingBalance: formatMoney(account.openingBalance),
     openingBalanceSide: account.openingBalanceSide,
     normalSide,
+    totalCredited: formatMoney(totalUserPaid),
+    totalPaid: formatMoney(totalAdminPaid),
+    totalUserPaid: formatMoney(totalUserPaid),
+    totalAdminPaid: formatMoney(totalAdminPaid),
+    pendingBalance: formatMoney(primary),
+    pendingSubmissionsCount: info?.pendingSubmissionsCount ?? 0,
+    pendingSubmissionsAmount: formatMoney(info?.pendingSubmissionsAmount ?? ZERO),
     /** Balance on the account's normal side. Negative amounts are credits (advances / overpayments). */
     balance: {
       amount: formatMoney(primary),

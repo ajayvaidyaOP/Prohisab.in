@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../db/prisma.ts';
+import { requireAdminRole } from '../../middleware/auth.ts';
 import { validate, getQuery } from '../../middleware/validate.ts';
 
 export const auditRouter = Router();
@@ -12,7 +13,7 @@ const auditQuery = z.object({
 });
 
 /** Read-only audit trail (records are append-only at the database level). */
-auditRouter.get('/', validate(auditQuery, 'query'), async (req, res) => {
+auditRouter.get('/', requireAdminRole, validate(auditQuery, 'query'), async (req, res) => {
   const query = getQuery<z.infer<typeof auditQuery>>(req);
   const where = query.entityType ? { entityType: query.entityType } : {};
   const [total, rows] = await prisma.$transaction([

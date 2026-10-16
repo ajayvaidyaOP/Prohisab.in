@@ -9,11 +9,25 @@
 ALTER TABLE `LedgerEntry` ADD CONSTRAINT `LedgerEntry_amount_positive_chk` CHECK (`amount` > 0);
 ALTER TABLE `Account` ADD CONSTRAINT `Account_openingBalance_nonnegative_chk` CHECK (`openingBalance` >= 0);
 
--- Posted ledger rows are immutable. Corrections are made by inserting a REVERSAL row.
+-- Posted ledger rows are immutable once approved/rejected. Only PENDING rows may transition to APPROVED or REJECTED.
 CREATE TRIGGER `LedgerEntry_prevent_update`
 BEFORE UPDATE ON `LedgerEntry`
 FOR EACH ROW
-SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Ledger entries are immutable. Create a reversal entry instead.';
+BEGIN
+  IF NOT (
+    OLD.`approvalStatus` = 'PENDING'
+    AND NEW.`approvalStatus` IN ('APPROVED', 'REJECTED')
+    AND OLD.`accountId` = NEW.`accountId`
+    AND OLD.`entryDate` = NEW.`entryDate`
+    AND OLD.`type` = NEW.`type`
+    AND OLD.`side` = NEW.`side`
+    AND OLD.`direction` = NEW.`direction`
+    AND OLD.`amount` = NEW.`amount`
+    AND (OLD.`reversalOfId` <=> NEW.`reversalOfId`)
+  ) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Ledger entries are immutable. Create a reversal entry instead.';
+  END IF;
+END;
 
 CREATE TRIGGER `LedgerEntry_prevent_delete`
 BEFORE DELETE ON `LedgerEntry`

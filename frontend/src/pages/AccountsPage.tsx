@@ -1,18 +1,38 @@
+import { useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Link, useNavigate, useSearchParams } from 'react-router';
-import { Plus, Search } from 'lucide-react';
-import { api } from '../lib/api';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
+import { FileDown, Pencil, Plus, Search, UserPlus, Wallet } from 'lucide-react';
+import { api, ApiError } from '../lib/api';
 import { formatPlain } from '../lib/format';
 import { useDebouncedValue, useSettings } from '../lib/queries';
-import { Badge, BalanceBadge, ButtonLink, Card, EmptyState, ErrorState, Field, PageHeader, Pagination, SelectInput, SkeletonRows, TextInput } from '../components/ui';
+import {
+  Alert,
+  Badge,
+  Button,
+  ButtonLink,
+  Card,
+  EmptyState,
+  ErrorState,
+  Field,
+  PageHeader,
+  Pagination,
+  SelectInput,
+  SkeletonRows,
+  TextInput,
+} from '../components/ui';
 
 const PAGE_SIZE = 20;
 
 export default function AccountsPage() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const navState = location.state as { flash?: string } | null;
+  const [downloadingPdfId, setDownloadingPdfId] = useState<number | null>(null);
+  const [downloadingSummaryPdf, setDownloadingSummaryPdf] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+
   const search = params.get('search') ?? '';
-  const type = params.get('type') ?? '';
   const status = params.get('status') ?? 'all';
   const page = Math.max(1, Number(params.get('page') ?? '1') || 1);
   const debouncedSearch = useDebouncedValue(search, 300);
@@ -29,12 +49,35 @@ export default function AccountsPage() {
     setParams(next, { replace: true });
   };
 
+  const handleDownloadPdf = async (id: number, name: string) => {
+    try {
+      setPdfError(null);
+      setDownloadingPdfId(id);
+      await api.ledger.downloadPdf(id, name);
+    } catch (err) {
+      setPdfError(err instanceof ApiError ? err.message : 'Could not download PDF.');
+    } finally {
+      setDownloadingPdfId(null);
+    }
+  };
+
+  const handleDownloadSummaryPdf = async () => {
+    try {
+      setPdfError(null);
+      setDownloadingSummaryPdf(true);
+      await api.ledger.downloadAllUsersSummaryPdf();
+    } catch (err) {
+      setPdfError(err instanceof ApiError ? err.message : 'Could not download All Users Summary PDF.');
+    } finally {
+      setDownloadingSummaryPdf(false);
+    }
+  };
+
   const query = useQuery({
-    queryKey: ['accounts', 'list', { search: debouncedSearch, type, status, page }],
+    queryKey: ['accounts', 'list', { search: debouncedSearch, status, page }],
     queryFn: () =>
       api.accounts.list({
         search: debouncedSearch || undefined,
-        type: type || undefined,
         status,
         page,
         pageSize: PAGE_SIZE,
@@ -45,25 +88,33 @@ export default function AccountsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Accounts"
-        description="Customers (receivables) and suppliers (payables). Balances are calculated from the ledger."
+        title="Users & Ledgers"
+        description="Create users (Name & Password), view Deposit & Withdrawal ledgers, and download PDF statements."
         actions={
-          <ButtonLink to="/accounts/new" variant="primary">
-            <Plus className="h-4 w-4" aria-hidden="true" /> New account
-          </ButtonLink>
+          <>
+            <Button variant="secondary" loading={downloadingSummaryPdf} onClick={() => void handleDownloadSummaryPdf()}>
+              <FileDown className="h-4 w-4" aria-hidden="true" /> All Users Summary PDF
+            </Button>
+            <ButtonLink to="/accounts/new" variant="primary">
+              <UserPlus className="h-4 w-4" aria-hidden="true" /> Create New User
+            </ButtonLink>
+          </>
         }
       />
 
+      {navState?.flash ? <Alert tone="success">{navState.flash}</Alert> : null}
+      {pdfError ? <Alert tone="error">{pdfError}</Alert> : null}
+
       <Card>
-        <div className="grid gap-3 sm:grid-cols-[1fr_180px_180px]">
-          <Field label="Search">
+        <div className="grid gap-3 sm:grid-cols-[1fr_200px]">
+          <Field label="Search User">
             {(id) => (
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
                 <TextInput
                   id={id}
                   type="search"
-                  placeholder="Name, code, phone or email"
+                  placeholder="User name or code"
                   value={search}
                   onChange={(e) => update({ search: e.target.value })}
                   className="pl-9"
@@ -72,19 +123,10 @@ export default function AccountsPage() {
               </div>
             )}
           </Field>
-          <Field label="Type">
-            {(id) => (
-              <SelectInput id={id} value={type} onChange={(e) => update({ type: e.target.value })}>
-                <option value="">All types</option>
-                <option value="CUSTOMER">Customers</option>
-                <option value="SUPPLIER">Suppliers</option>
-              </SelectInput>
-            )}
-          </Field>
           <Field label="Status">
             {(id) => (
               <SelectInput id={id} value={status} onChange={(e) => update({ status: e.target.value === 'all' ? null : e.target.value })}>
-                <option value="all">All</option>
+                <option value="all">All Users</option>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
               </SelectInput>
@@ -99,18 +141,18 @@ export default function AccountsPage() {
             <ErrorState message={query.error.message} onRetry={() => void query.refetch()} />
           </div>
         ) : query.isPending ? (
-          <SkeletonRows rows={6} cols={5} />
+          <SkeletonRows rows={6} cols={6} />
         ) : query.data.items.length === 0 ? (
           <div className="p-4 sm:p-6">
-            {search || type || status !== 'all' ? (
-              <EmptyState title="No accounts match these filters." description="Try a different search or clear the filters." />
+            {search || status !== 'all' ? (
+              <EmptyState title="No users match these filters." description="Try a different search or clear the filters." />
             ) : (
               <EmptyState
-                title="No accounts yet."
-                description="Add your first customer or supplier. You can enter an opening balance when you create it."
+                title="No users created yet."
+                description="Create your first user with just a Name and Password."
                 action={
                   <ButtonLink to="/accounts/new" variant="primary">
-                    <Plus className="h-4 w-4" aria-hidden="true" /> Add account
+                    <Plus className="h-4 w-4" aria-hidden="true" /> Create First User
                   </ButtonLink>
                 }
               />
@@ -122,52 +164,76 @@ export default function AccountsPage() {
               <table className="min-w-full divide-y divide-slate-200 text-sm">
                 <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
-                    <th className="px-4 py-3">Code</th>
-                    <th className="px-4 py-3">Name</th>
-                    <th className="hidden px-4 py-3 md:table-cell">Type</th>
-                    <th className="hidden px-4 py-3 lg:table-cell">Phone</th>
-                    <th className="px-4 py-3 text-right">Current balance ({symbol})</th>
+                    <th className="px-4 py-3">User Name</th>
+                    <th className="px-4 py-3 text-right">Total Deposit (+ {symbol})</th>
+                    <th className="px-4 py-3 text-right">Total Withdraw (- {symbol})</th>
+                    <th className="px-4 py-3 text-right">Net Balance ({symbol})</th>
                     <th className="hidden px-4 py-3 sm:table-cell">Status</th>
+                    <th className="px-4 py-3 text-right">Actions & PDF</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
-                  {query.data.items.map((a) => (
-                    <tr
-                      key={a.id}
-                      className="cursor-pointer hover:bg-slate-50"
-                      onClick={(e) => {
-                        if ((e.target as HTMLElement).closest('a')) return;
-                        void navigate(`/accounts/${a.id}`);
-                      }}
-                    >
-                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600">{a.accountCode}</td>
-                      <td className="px-4 py-3">
-                        <Link to={`/accounts/${a.id}`} className="font-medium text-slate-900 hover:text-indigo-700 hover:underline">
-                          {a.name}
-                        </Link>
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5 md:hidden">
-                          <Badge tone={a.type === 'CUSTOMER' ? 'sky' : 'indigo'}>{a.typeLabel}</Badge>
-                        </div>
-                      </td>
-                      <td className="hidden px-4 py-3 md:table-cell">
-                        <Badge tone={a.type === 'CUSTOMER' ? 'sky' : 'indigo'}>{a.typeLabel}</Badge>
-                      </td>
-                      <td className="hidden whitespace-nowrap px-4 py-3 text-slate-600 lg:table-cell">{a.phone ?? '—'}</td>
-                      <td className="px-4 py-3 text-right">
-                        <p className="font-semibold tabular-nums text-slate-900">{formatPlain(a.balance.amount)}</p>
-                        <div className="mt-1 flex justify-end">
-                          <BalanceBadge status={a.balance.status} accountType={a.type} />
-                        </div>
-                      </td>
-                      <td className="hidden px-4 py-3 sm:table-cell">
-                        {a.isActive ? <Badge tone="emerald">Active</Badge> : <Badge tone="slate">Inactive</Badge>}
-                      </td>
-                    </tr>
-                  ))}
+                  {query.data.items.map((a) => {
+                    const hasPending = Number(a.pendingBalance) > 0;
+                    return (
+                      <tr
+                        key={a.id}
+                        className="cursor-pointer hover:bg-slate-50"
+                        onClick={(e) => {
+                          if ((e.target as HTMLElement).closest('a,button')) return;
+                          void navigate(`/accounts/${a.id}`);
+                        }}
+                      >
+                        <td className="px-4 py-3">
+                          <Link to={`/accounts/${a.id}`} className="font-semibold text-slate-900 hover:text-indigo-700 hover:underline">
+                            {a.name}
+                          </Link>
+                          <p className="font-mono text-xs text-slate-400">{a.accountCode}</p>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-indigo-700">
+                          {formatPlain(a.totalUserPaid)}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-emerald-700">
+                          {formatPlain(a.totalAdminPaid)}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right">
+                          <span className={`font-bold tabular-nums ${hasPending ? 'text-amber-700' : 'text-slate-800'}`}>
+                            {formatPlain(a.pendingBalance)}
+                          </span>
+                        </td>
+                        <td className="hidden px-4 py-3 sm:table-cell">
+                          {a.isActive ? <Badge tone="emerald">Active</Badge> : <Badge tone="slate">Inactive</Badge>}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right">
+                          <div className="inline-flex items-center gap-1.5">
+                            <Button
+                              variant="secondary"
+                              className="!px-2.5 !py-1 text-xs"
+                              loading={downloadingPdfId === a.id}
+                              onClick={() => void handleDownloadPdf(a.id, a.name)}
+                            >
+                              <FileDown className="h-3.5 w-3.5" /> Download PDF
+                            </Button>
+                            <ButtonLink to={`/accounts/${a.id}`} variant="primary" className="!px-2.5 !py-1 text-xs">
+                              <Wallet className="h-3.5 w-3.5" /> Ledger
+                            </ButtonLink>
+                            <ButtonLink to={`/accounts/${a.id}/edit`} variant="secondary" className="!px-2.5 !py-1 text-xs">
+                              <Pencil className="h-3.5 w-3.5" /> Edit / Pass
+                            </ButtonLink>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-            <Pagination page={query.data.pagination.page} totalPages={query.data.pagination.totalPages} total={query.data.pagination.total} onChange={(p) => update({ page: String(p) })} />
+            <Pagination
+              page={query.data.pagination.page}
+              totalPages={query.data.pagination.totalPages}
+              total={query.data.pagination.total}
+              onChange={(p) => update({ page: String(p) })}
+            />
           </>
         )}
       </Card>

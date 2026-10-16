@@ -19,6 +19,7 @@ export type LedgerRowInput = {
   side: BalanceSide;
   direction: EntryDirection;
   amount: Money;
+  approvalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
 };
 
 export type SideTotals = {
@@ -30,10 +31,15 @@ export function signedDelta(direction: EntryDirection, amount: Money): Money {
   return direction === 'INCREASE' ? amount : amount.negated();
 }
 
+function isApprovedRow(row: { approvalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED' }): boolean {
+  return !row.approvalStatus || row.approvalStatus === 'APPROVED';
+}
+
 /** Net balance on one side from opening + entries (entries must already be filtered to that side). */
 export function netBalance(opening: Money, openingSide: BalanceSide, side: BalanceSide, rows: LedgerRowInput[]): Money {
   let total = openingSide === side ? opening : ZERO;
   for (const row of rows) {
+    if (!isApprovedRow(row)) continue;
     if (row.side !== side) continue;
     total = total.plus(signedDelta(row.direction, row.amount));
   }
@@ -82,17 +88,18 @@ export function runningStatement<T extends LedgerRowInput>(
   const lines: StatementLine<T>[] = [];
   for (const row of rowsInOrder) {
     const crossSide = row.side !== normalSide;
-    if (!crossSide) running = running.plus(signedDelta(row.direction, row.amount));
+    if (!crossSide && isApprovedRow(row)) running = running.plus(signedDelta(row.direction, row.amount));
     lines.push({ ...row, runningBalance: running, crossSide });
   }
   return { lines, closing: running, openingOnNormalSide: openingSide === normalSide ? opening : ZERO };
 }
 
 /** Sums increases and decreases for the given rows (already filtered). */
-export function sumDirections(rows: Array<{ direction: EntryDirection; amount: Money }>): SideTotals {
+export function sumDirections(rows: Array<{ direction: EntryDirection; amount: Money; approvalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED' }>): SideTotals {
   let increases = ZERO;
   let decreases = ZERO;
   for (const row of rows) {
+    if (!isApprovedRow(row)) continue;
     if (row.direction === 'INCREASE') increases = increases.plus(row.amount);
     else decreases = decreases.plus(row.amount);
   }

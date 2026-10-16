@@ -1,10 +1,12 @@
 // Shapes returned by the API. Money is always a decimal string (e.g. "1500.00"); never parse it with floats for math.
 
 export type AccountType = 'CUSTOMER' | 'SUPPLIER';
+export type UserRole = 'ADMIN' | 'USER';
 export type BalanceSide = 'RECEIVABLE' | 'PAYABLE';
 export type EntryDirection = 'INCREASE' | 'DECREASE';
 export type BalanceStatus = 'DUE' | 'CREDIT' | 'SETTLED';
 export type PaymentMethod = 'CASH' | 'UPI' | 'BANK_TRANSFER' | 'OTHER';
+export type ApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
 export type TransactionType =
   | 'CREDIT_SALE'
@@ -14,6 +16,14 @@ export type TransactionType =
   | 'PAYMENT_MADE'
   | 'SUPPLIER_CREDIT_ADJUSTMENT'
   | 'REVERSAL';
+
+export interface AuthUser {
+  id: number;
+  username: string;
+  role: UserRole;
+  accountId: number | null;
+  name: string;
+}
 
 export interface Pagination {
   page: number;
@@ -32,6 +42,8 @@ export interface AccountSummary {
   id: number;
   accountCode: string;
   name: string;
+  username: string | null;
+  hasLogin: boolean;
   type: AccountType;
   typeLabel: string;
   phone: string | null;
@@ -41,6 +53,13 @@ export interface AccountSummary {
   openingBalance: string;
   openingBalanceSide: BalanceSide;
   normalSide: BalanceSide;
+  totalCredited?: string;
+  totalPaid?: string;
+  totalUserPaid: string;
+  totalAdminPaid: string;
+  pendingBalance: string;
+  pendingSubmissionsCount?: number;
+  pendingSubmissionsAmount?: string;
   balance: Balance;
   balances: { receivable: string; payable: string };
   crossSideBalance: { amount: string; side: BalanceSide } | null;
@@ -68,6 +87,9 @@ export interface LedgerEntry {
   reversedById: number | null;
   isReversal: boolean;
   isReversed: boolean;
+  approvalStatus?: ApprovalStatus;
+  reviewedAt?: string | null;
+  rejectionReason?: string | null;
   runningBalance: string;
   crossSide: boolean;
   createdAt: string;
@@ -105,9 +127,29 @@ export interface Transaction {
   reversedById: number | null;
   isReversal: boolean;
   isReversed: boolean;
+  approvalStatus?: ApprovalStatus;
+  reviewedBy?: { id: number; username: string } | null;
+  reviewedAt?: string | null;
+  rejectionReason?: string | null;
   account: { id: number; accountCode: string; name: string; type: AccountType; typeLabel: string };
   createdById: number;
   createdAt: string;
+}
+
+export interface DashboardUserOverview {
+  id: number;
+  accountCode: string;
+  name: string;
+  username: string | null;
+  phone: string | null;
+  type: AccountType;
+  isActive: boolean;
+  totalUserPaid: string;
+  totalAdminPaid: string;
+  pendingBalance: string;
+  pendingSubmissionsCount?: number;
+  pendingSubmissionsAmount?: string;
+  balance: Balance;
 }
 
 export interface DashboardData {
@@ -119,23 +161,43 @@ export interface DashboardData {
     inactiveCustomers: number;
     activeSuppliers: number;
     inactiveSuppliers: number;
+    totalUsers: number;
+    activeUsers: number;
     ledgerEntries: number;
     entriesToday: number;
     customersWithBalance: number;
     suppliersWithBalance: number;
+    pendingSubmissionsCount?: number;
+  };
+  userLedgerTotals: {
+    totalUserPaid: string;
+    totalAdminPaid: string;
+    totalPending: string;
+    pendingSubmissionsCount?: number;
+    pendingSubmissionsAmount?: string;
+    todayUserPaid: string;
+    todayUserPaidCount: number;
+    todayAdminPaid: string;
+    todayAdminPaidCount: number;
   };
   receivables: { total: string; credits: string; description: string };
   payables: { total: string; credits: string; description: string };
   todayPayments: { received: string; receivedCount: number; paid: string; paidCount: number; date: string };
+  pendingEntries?: Transaction[];
   recentTransactions: Transaction[];
   outstandingAccounts: Array<{
     id: number;
     accountCode: string;
     name: string;
+    username?: string | null;
     type: AccountType;
     isActive: boolean;
+    totalUserPaid?: string;
+    totalAdminPaid?: string;
+    pendingBalance?: string;
     balance: Balance;
   }>;
+  usersOverview: DashboardUserOverview[];
   outstandingCount: number;
 }
 
@@ -147,6 +209,7 @@ export interface SettingsView {
     businessEmail: string | null;
     currencySymbol: string;
     timezone: string;
+    userEntryOptions?: string[];
     updatedAt: string;
   };
   today: string;
@@ -168,7 +231,11 @@ export interface AccountOption {
   id: number;
   accountCode: string;
   name: string;
+  username?: string | null;
   type: AccountType;
   isActive: boolean;
+  totalUserPaid?: string;
+  totalAdminPaid?: string;
+  pendingBalance?: string;
   balance: Balance;
 }

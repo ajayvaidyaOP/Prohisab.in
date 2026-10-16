@@ -13,7 +13,7 @@ export const authRouter = Router();
 function cookieOptions(): CookieOptions {
   return {
     httpOnly: true,
-    sameSite: 'strict',
+    sameSite: env.COOKIE_SAME_SITE_EFFECTIVE,
     secure: env.COOKIE_SECURE_EFFECTIVE,
     path: '/',
   };
@@ -36,12 +36,14 @@ authRouter.post('/login', loginLimiter, validate(loginBody), async (req, res) =>
     userAgent: req.get('User-Agent') ?? undefined,
   });
   res.cookie(SESSION_COOKIE, result.token, { ...cookieOptions(), maxAge: SESSION_MAX_MS });
-  res.json({ user: result.admin });
+  res.json({ user: result.admin, sessionToken: result.token });
 });
 
 authRouter.post('/logout', async (req, res, next) => {
   try {
-    const token = typeof req.cookies?.[SESSION_COOKIE] === 'string' ? (req.cookies[SESSION_COOKIE] as string) : undefined;
+    const cookieToken = typeof req.cookies?.[SESSION_COOKIE] === 'string' ? (req.cookies[SESSION_COOKIE] as string) : undefined;
+    const headerToken = req.get('X-Session-Token')?.trim() || undefined;
+    const token = cookieToken ?? headerToken;
     if (token) {
       await logout(sha256Hex(token));
     }

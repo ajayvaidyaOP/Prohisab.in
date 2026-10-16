@@ -1,5 +1,7 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
+import { requireAdminRole } from '../../middleware/auth.ts';
 import { validate, getQuery } from '../../middleware/validate.ts';
+import { errors } from '../../lib/errors.ts';
 import { readIdempotencyKey, withIdempotency } from '../../lib/idempotency.ts';
 import { idParam } from '../../lib/schemas.ts';
 import {
@@ -17,15 +19,21 @@ import * as service from './accounts.service.ts';
 
 export const accountsRouter = Router();
 
-accountsRouter.get('/', validate(accountListQuery, 'query'), async (req, res) => {
+function ensureCanAccessAccount(req: Request, accountId: number): void {
+  if (req.admin?.role === 'ADMIN') return;
+  if (req.admin?.role === 'USER' && req.admin.accountId === accountId) return;
+  throw errors.forbidden('You can only view your own ledger.');
+}
+
+accountsRouter.get('/', requireAdminRole, validate(accountListQuery, 'query'), async (req, res) => {
   res.json(await service.listAccounts(getQuery<AccountListQuery>(req)));
 });
 
-accountsRouter.get('/options', validate(accountOptionsQuery, 'query'), async (req, res) => {
+accountsRouter.get('/options', requireAdminRole, validate(accountOptionsQuery, 'query'), async (req, res) => {
   res.json({ items: await service.accountOptions(getQuery<AccountOptionsQuery>(req)) });
 });
 
-accountsRouter.post('/', validate(accountCreateBody), async (req, res) => {
+accountsRouter.post('/', requireAdminRole, validate(accountCreateBody), async (req, res) => {
   const key = readIdempotencyKey(req.get('Idempotency-Key'));
   const body = req.body as AccountCreateBody;
   const result = await withIdempotency({
@@ -42,16 +50,17 @@ accountsRouter.post('/', validate(accountCreateBody), async (req, res) => {
 
 accountsRouter.get('/:id', validate(idParam, 'params'), async (req, res) => {
   const { id } = req.params as unknown as { id: number };
+  ensureCanAccessAccount(req, Number(id));
   res.json({ account: await service.getAccount(Number(id)) });
 });
 
-accountsRouter.patch('/:id', validate(idParam, 'params'), validate(accountUpdateBody), async (req, res) => {
+accountsRouter.patch('/:id', requireAdminRole, validate(idParam, 'params'), validate(accountUpdateBody), async (req, res) => {
   const { id } = req.params as unknown as { id: number };
   const account = await service.updateAccount(Number(id), req.body as AccountUpdateBody, req.admin!.id);
   res.json({ account });
 });
 
-accountsRouter.patch('/:id/status', validate(idParam, 'params'), validate(accountStatusBody), async (req, res) => {
+accountsRouter.patch('/:id/status', requireAdminRole, validate(idParam, 'params'), validate(accountStatusBody), async (req, res) => {
   const { id } = req.params as unknown as { id: number };
   const { isActive } = req.body as { isActive: boolean };
   const account = await service.setAccountStatus(Number(id), isActive, req.admin!.id);

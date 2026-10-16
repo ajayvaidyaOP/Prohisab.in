@@ -98,3 +98,67 @@ test('sumDirections totals increases and decreases separately', () => {
   assert.equal(formatMoney(totals.increases), '3.30');
   assert.equal(formatMoney(totals.decreases), '0.30');
 });
+
+test('approval workflow: PENDING and REJECTED entries do not affect confirmed balances until APPROVED', () => {
+  const rows = [
+    {
+      id: 1,
+      entryDate: '2026-10-01',
+      side: 'RECEIVABLE' as const,
+      direction: 'INCREASE' as const,
+      amount: money('1500.00'),
+      approvalStatus: 'APPROVED' as const,
+    },
+    {
+      id: 2,
+      entryDate: '2026-10-02',
+      side: 'RECEIVABLE' as const,
+      direction: 'INCREASE' as const,
+      amount: money('450.00'),
+      approvalStatus: 'PENDING' as const,
+    },
+    {
+      id: 3,
+      entryDate: '2026-10-03',
+      side: 'RECEIVABLE' as const,
+      direction: 'INCREASE' as const,
+      amount: money('300.00'),
+      approvalStatus: 'REJECTED' as const,
+    },
+    {
+      id: 4,
+      entryDate: '2026-10-04',
+      side: 'RECEIVABLE' as const,
+      direction: 'DECREASE' as const,
+      amount: money('500.00'),
+      approvalStatus: 'APPROVED' as const,
+    },
+  ];
+
+  // While entry #2 is PENDING and entry #3 is REJECTED:
+  // Confirmed balance = 1500.00 - 500.00 = 1000.00
+  const beforeApproval = accountBalances(money('0.00'), 'RECEIVABLE', rows);
+  assert.equal(formatMoney(beforeApproval.receivable), '1000.00');
+
+  const statementBefore = runningStatement(money('0.00'), 'RECEIVABLE', 'RECEIVABLE', rows);
+  assert.deepEqual(
+    statementBefore.lines.map((l) => formatMoney(l.runningBalance)),
+    ['1500.00', '1500.00', '1500.00', '1000.00'],
+  );
+  assert.equal(formatMoney(statementBefore.closing), '1000.00');
+
+  const totalsBefore = sumDirections(rows);
+  assert.equal(formatMoney(totalsBefore.increases), '1500.00');
+  assert.equal(formatMoney(totalsBefore.decreases), '500.00');
+
+  // Once Admin approves entry #2 (PENDING -> APPROVED):
+  // Confirmed balance becomes 1500.00 + 450.00 - 500.00 = 1450.00
+  const afterApprovalRows = rows.map((r) => (r.id === 2 ? { ...r, approvalStatus: 'APPROVED' as const } : r));
+  const afterApproval = accountBalances(money('0.00'), 'RECEIVABLE', afterApprovalRows);
+  assert.equal(formatMoney(afterApproval.receivable), '1450.00');
+
+  const totalsAfter = sumDirections(afterApprovalRows);
+  assert.equal(formatMoney(totalsAfter.increases), '1950.00');
+  assert.equal(formatMoney(totalsAfter.decreases), '500.00');
+});
+

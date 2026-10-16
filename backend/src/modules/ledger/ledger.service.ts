@@ -6,6 +6,9 @@ import { describeBalance, runningStatement, sumDirections, compareEntries, type 
 import { NORMAL_SIDE_BY_ACCOUNT_TYPE, PAYMENT_METHOD_LABELS, TYPE_LABELS } from './ledger.rules.ts';
 import { serializeAccount } from '../accounts/accounts.serializers.ts';
 import { loadBalances } from './ledger.queries.ts';
+import { getSettings } from '../settings/settings.service.ts';
+import { todayInTimeZone } from '../../lib/dates.ts';
+import { buildLedgerPdf } from '../../lib/pdf.ts';
 import type { BalanceSide, EntryDirection, PaymentMethod, TransactionType } from '../../generated/prisma/client.ts';
 import type { LedgerQuery, StatementQuery } from './ledger.schemas.ts';
 
@@ -16,6 +19,9 @@ export type LedgerEntryRow = LedgerRowInput & {
   notes: string | null;
   reversalOfId: number | null;
   reversedById: number | null;
+  approvalStatus: 'PENDING' | 'APPROVED' | 'REJECTED';
+  reviewedAt: Date | null;
+  rejectionReason: string | null;
   createdAt: Date;
 };
 
@@ -41,6 +47,9 @@ export function serializeEntry(line: LedgerLine) {
     reversedById: row.reversedById,
     isReversal: row.type === 'REVERSAL',
     isReversed: row.reversedById !== null,
+    approvalStatus: row.approvalStatus,
+    reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
+    rejectionReason: row.rejectionReason,
     runningBalance: formatMoney(row.runningBalance),
     crossSide: row.crossSide,
     createdAt: row.createdAt.toISOString(),
@@ -76,7 +85,10 @@ function balanceDto(amount: Money, side: BalanceSide) {
  *  - Closing balance = balance after the last entry on or before "to" (or the latest entry if no "to").
  */
 async function computeLedger(accountId: number, filters: LedgerFilters) {
-  const account = await prisma.account.findUnique({ where: { id: accountId } });
+  const account = await prisma.account.findUnique({
+    where: { id: accountId },
+    include: { loginUser: { select: { username: true } } },
+  });
   if (!account) throw errors.notFound('Account not found.');
 
   const [entries, balanceInfo] = await Promise.all([
@@ -94,6 +106,9 @@ async function computeLedger(accountId: number, filters: LedgerFilters) {
         referenceNumber: true,
         notes: true,
         reversalOfId: true,
+        approvalStatus: true,
+        reviewedAt: true,
+        rejectionReason: true,
         createdAt: true,
         reversedBy: { select: { id: true } },
       },
@@ -113,6 +128,9 @@ async function computeLedger(accountId: number, filters: LedgerFilters) {
     notes: entry.notes,
     reversalOfId: entry.reversalOfId,
     reversedById: entry.reversedBy?.id ?? null,
+    approvalStatus: entry.approvalStatus,
+    reviewedAt: entry.reviewedAt,
+    rejectionReason: entry.rejectionReason,
     createdAt: entry.createdAt,
   }));
   rows.sort(compareEntries);
@@ -220,3 +238,40 @@ export async function getLedgerCsv(accountId: number, query: StatementQuery): Pr
   const stamp = `${view.filters.from ?? 'start'}_to_${view.filters.to ?? 'latest'}`;
   return { filename: `ledger-${safeCode}-${stamp}.csv`, body: `\uFEFF${lines.join('\r\n')}\r\n` };
 }
+
+export async function getLedgerPdf(accountId: number, query: StatementQuery): Promise<{ filename: string; body: Buffer }> {
+  const [view, settings] = await Promise.all([
+    computeLedger(accountId, { from: query.from, to: query.to, search: query.search }),
+    getSettings(),
+  ]);
+  const today = todayInTimeZone(settings.timezone);
+  const rows = view.displayed.map((line) => ({
+    id: line.id,
+    entryDate: line.entryDate,
+    description: line.notes || TYPE_LABELS[line.type],
+    paymentMethod: line.paymentMethod ? PAYMENT_METHOD_LABELS[line.paymentMethod] : '-',
+    status: line.reversedById !== null ? 'REVERSED' : line.approvalStatus,
+    increase: line.direction === 'INCREASE' ? formatMoney(line.amount) : '',
+    decrease: line.direction === 'DECREASE' ? formatMoney(line.amount) : '',
+    runningBalance: formatMoney(line.runningBalance),
+  }));
+
+  const body = buildLedgerPdf({
+    businessName: settings.businessName,
+    accountName: view.account.name,
+    accountCode: view.account.accountCode,
+    fromDate: view.filters.from,
+    toDate: view.filters.to,
+    generatedDate: today,
+    totalCredited: view.account.totalUserPaid,
+    totalSettled: view.account.totalAdminPaid,
+    outstandingBalance: view.account.pendingBalance,
+    pendingSubmissionsAmount: view.account.pendingSubmissionsAmount,
+    rows,
+  });
+
+  const safeName = view.account.name.replace(/[^A-Za-z0-9_-]/g, '_').replace(/_+/g, '_');
+  const stamp = `${view.filters.from ?? 'start'}_to_${view.filters.to ?? today}`;
+  return { filename: `ledger-${safeName}-${stamp}.pdf`, body };
+}
+

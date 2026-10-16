@@ -44,7 +44,7 @@ const inputClass =
 interface FieldProps {
   label: string;
   error?: string;
-  hint?: string;
+  hint?: ReactNode;
   required?: boolean;
   children: (id: string, describedBy: string | undefined) => ReactNode;
 }

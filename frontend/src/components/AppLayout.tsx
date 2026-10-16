@@ -1,18 +1,33 @@
 import { Suspense, useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowRightLeft, BookUser, LayoutDashboard, LogOut, Menu, Plus, Settings, X } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  ArrowRightLeft,
+  BookUser,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  Plus,
+  Settings,
+  UserPlus,
+  Wallet,
+  X,
+} from 'lucide-react';
 import { useMe } from '../lib/auth';
 import { api } from '../lib/api';
 import { useSettings } from '../lib/queries';
-import { ButtonLink } from './ui';
+import { Badge, ButtonLink } from './ui';
 import { PageSkeleton } from './PageSkeleton';
 
-const NAV = [
+const ADMIN_NAV = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/accounts', label: 'Accounts', icon: BookUser, end: false },
-  { to: '/transactions', label: 'Transactions', icon: ArrowRightLeft, end: false },
+  { to: '/accounts', label: 'Users & Ledgers', icon: BookUser, end: false },
+  { to: '/transactions', label: 'All Entries', icon: ArrowRightLeft, end: false },
   { to: '/settings', label: 'Settings', icon: Settings, end: false },
+];
+
+const USER_NAV = [
+  { to: '/', label: 'My Deposit & Withdraw', icon: Wallet, end: true },
 ];
 
 function navClass(isActive: boolean) {
@@ -27,7 +42,18 @@ export function AppLayout() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+
   const businessName = settings.data?.business.businessName ?? 'Simple Ledger ERP';
+  const isAdmin = me.data?.role !== 'USER';
+  const navItems = isAdmin ? ADMIN_NAV : USER_NAV;
+
+  // Live Pending Approvals Count in Sidebar for Admin
+  const dashboardQuery = useQuery({
+    queryKey: ['dashboard'],
+    queryFn: () => api.dashboard(),
+    enabled: isAdmin,
+  });
+  const pendingCount = dashboardQuery.data?.userLedgerTotals?.pendingSubmissionsCount ?? 0;
 
   const logout = useMutation({
     mutationFn: () => api.auth.logout(),
@@ -47,24 +73,38 @@ export function AppLayout() {
             <p className="truncate text-sm font-semibold text-slate-900" title={businessName}>
               {businessName}
             </p>
-            <p className="text-xs text-slate-500">Simple Ledger ERP</p>
+            <p className="text-xs text-slate-500">{isAdmin ? 'Admin Ledger Panel' : 'User Deposit / Withdraw'}</p>
           </div>
         </div>
         <nav className="flex-1 space-y-1 p-3" aria-label="Main">
-          {NAV.map((item) => (
+          {navItems.map((item) => (
             <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => navClass(isActive)}>
-              <item.icon className="h-4 w-4" aria-hidden="true" />
-              {item.label}
+              <item.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span className="truncate">{item.label}</span>
+              {isAdmin && item.to === '/' && pendingCount > 0 ? (
+                <span
+                  className="ml-auto inline-flex items-center justify-center rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-bold text-white"
+                  title={`${pendingCount} pending approvals`}
+                >
+                  {pendingCount}
+                </span>
+              ) : null}
             </NavLink>
           ))}
         </nav>
         <div className="border-t border-slate-200 p-4">
-          <p className="truncate text-sm text-slate-700">Signed in as <span className="font-medium">{me.data?.username ?? '…'}</span></p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="truncate text-sm text-slate-700">
+              <span className="font-medium">{me.data?.name ?? me.data?.username ?? '…'}</span>
+            </p>
+            <Badge tone={isAdmin ? 'indigo' : 'emerald'}>{isAdmin ? 'Admin' : 'User'}</Badge>
+          </div>
+          <p className="truncate text-xs text-slate-500">Login: {me.data?.username ?? ''}</p>
           <button
             type="button"
             onClick={() => logout.mutate()}
             disabled={logout.isPending}
-            className="mt-2 inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900 disabled:opacity-60"
+            className="mt-2.5 inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900 disabled:opacity-60"
           >
             <LogOut className="h-4 w-4" aria-hidden="true" /> Sign out
           </button>
@@ -86,12 +126,28 @@ export function AppLayout() {
                 {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
               </button>
               <span className="truncate text-sm font-semibold text-slate-900">{businessName}</span>
+              {isAdmin && pendingCount > 0 ? (
+                <span className="inline-flex items-center rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-bold text-white">
+                  {pendingCount} Pending
+                </span>
+              ) : null}
             </div>
             <div className="hidden lg:block" />
             <div className="flex items-center gap-2">
-              <ButtonLink to="/transactions/new" variant="primary" className="!px-3 !py-1.5">
-                <Plus className="h-4 w-4" aria-hidden="true" /> <span className="hidden sm:inline">Add transaction</span><span className="sm:hidden">Add</span>
-              </ButtonLink>
+              {isAdmin && (
+                <>
+                  <ButtonLink to="/accounts/new" variant="secondary" className="!px-3 !py-1.5">
+                    <UserPlus className="h-4 w-4" aria-hidden="true" />{' '}
+                    <span className="hidden sm:inline">Create User</span>
+                    <span className="sm:hidden">User</span>
+                  </ButtonLink>
+                  <ButtonLink to="/transactions/new" variant="primary" className="!px-3 !py-1.5">
+                    <Plus className="h-4 w-4" aria-hidden="true" />{' '}
+                    <span className="hidden sm:inline">Deposit / Withdraw</span>
+                    <span className="sm:hidden">Entry</span>
+                  </ButtonLink>
+                </>
+              )}
               <button
                 type="button"
                 onClick={() => logout.mutate()}
@@ -104,10 +160,21 @@ export function AppLayout() {
           </div>
           {menuOpen && (
             <nav className="space-y-1 border-t border-slate-200 bg-white p-3 lg:hidden" aria-label="Main mobile">
-              {NAV.map((item) => (
-                <NavLink key={item.to} to={item.to} end={item.end} onClick={() => setMenuOpen(false)} className={({ isActive }) => navClass(isActive)}>
+              {navItems.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  onClick={() => setMenuOpen(false)}
+                  className={({ isActive }) => navClass(isActive)}
+                >
                   <item.icon className="h-4 w-4" aria-hidden="true" />
-                  {item.label}
+                  <span>{item.label}</span>
+                  {isAdmin && item.to === '/' && pendingCount > 0 ? (
+                    <span className="ml-auto inline-flex items-center justify-center rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-bold text-white">
+                      {pendingCount}
+                    </span>
+                  ) : null}
                 </NavLink>
               ))}
             </nav>

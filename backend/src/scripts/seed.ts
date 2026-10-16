@@ -61,7 +61,7 @@ function validateCredentials(username: string, password: string): void {
 }
 
 async function createOrResetAdmin(): Promise<void> {
-  const existing = await prisma.adminUser.findFirst({ orderBy: { id: 'asc' } });
+  const existing = await prisma.adminUser.findFirst({ where: { role: 'ADMIN' }, orderBy: { id: 'asc' } });
 
   if (existing && !args.has('--reset-password')) {
     console.log(`An administrator ("${existing.username}") already exists. Nothing was changed.`);
@@ -83,13 +83,13 @@ async function createOrResetAdmin(): Promise<void> {
     return;
   }
 
-  const admin = await prisma.adminUser.create({ data: { username, passwordHash } });
+  const admin = await prisma.adminUser.create({ data: { username, passwordHash, role: 'ADMIN' } });
   await writeAudit(prisma, { action: 'ADMIN_CREATED', entityType: 'AdminUser', entityId: admin.id, actorId: admin.id });
   console.log(`Administrator "${username}" created.`);
 }
 
 async function addDemoData(): Promise<void> {
-  const admin = await prisma.adminUser.findFirst({ orderBy: { id: 'asc' } });
+  const admin = await prisma.adminUser.findFirst({ where: { role: 'ADMIN' }, orderBy: { id: 'asc' } });
   if (!admin) throw new Error('Create the administrator first.');
   const settings = await getSettings();
   const today = todayInTimeZone(settings.timezone);

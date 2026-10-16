@@ -8,10 +8,29 @@ import { writeAudit } from '../../lib/audit.ts';
 export const SESSION_MAX_MS = env.SESSION_MAX_HOURS * 60 * 60 * 1000;
 
 export async function login(params: { username: string; password: string; userAgent?: string }) {
-  const admin = await prisma.adminUser.findUnique({ where: { username: params.username } });
+  const inputName = params.username.trim();
+  let admin = await prisma.adminUser.findUnique({
+    where: { username: inputName },
+    include: { account: { select: { id: true, name: true, isActive: true } } },
+  });
+  if (!admin) {
+    const matchingAccounts = await prisma.account.findMany({
+      where: { OR: [{ name: { contains: inputName } }] },
+      include: { loginUser: { select: { id: true } } },
+    });
+    const exactAccount = matchingAccounts.find(
+      (a) => a.name.trim().toLowerCase() === inputName.toLowerCase() && a.loginUser?.id,
+    );
+    if (exactAccount?.loginUser?.id) {
+      admin = await prisma.adminUser.findUnique({
+        where: { id: exactAccount.loginUser.id },
+        include: { account: { select: { id: true, name: true, isActive: true } } },
+      });
+    }
+  }
   if (!admin) {
     await burnPasswordCheck(params.password);
-    throw errors.unauthorized('Invalid username or password.');
+    throw errors.unauthorized('Invalid name or password.');
   }
   const valid = await verifyPassword(admin.passwordHash, params.password);
   if (!valid) {
@@ -23,6 +42,9 @@ export async function login(params: { username: string; password: string; userAg
       details: { reason: 'bad_password' },
     });
     throw errors.unauthorized('Invalid username or password.');
+  }
+  if (admin.role === 'USER' && admin.account && !admin.account.isActive) {
+    throw errors.unauthorized('Your account is inactive. Please contact the administrator.');
   }
 
   const token = generateSessionToken();
@@ -42,7 +64,16 @@ export async function login(params: { username: string; password: string; userAg
   ]);
   await writeAudit(prisma, { action: 'AUTH_LOGIN', entityType: 'AdminUser', entityId: admin.id, actorId: admin.id });
 
-  return { token, admin: { id: admin.id, username: admin.username } };
+  return {
+    token,
+    admin: {
+      id: admin.id,
+      username: admin.username,
+      role: admin.role,
+      accountId: admin.accountId ?? null,
+      name: admin.account?.name ?? 'Administrator',
+    },
+  };
 }
 
 export async function logout(sessionId: string | undefined): Promise<void> {

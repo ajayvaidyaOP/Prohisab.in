@@ -4,13 +4,34 @@ import { errors } from '../../lib/errors.ts';
 import { writeAudit } from '../../lib/audit.ts';
 import { hashPassword, verifyPassword } from '../../lib/password.ts';
 import { todayInTimeZone } from '../../lib/dates.ts';
-import type { SettingsUpdateBody, PasswordChangeBody } from './settings.schemas.ts';
+import type { SettingsUpdateBody, PasswordChangeBody, EntryOptionsBody } from './settings.schemas.ts';
+
+export const DEFAULT_USER_ENTRY_OPTIONS = [
+  'Cash Deposit',
+  'UPI / Bank Deposit',
+  'Cash Withdrawal',
+  'UPI / Bank Withdrawal',
+  'Site Material',
+  'Petrol / Transport',
+  'Hardware Bill',
+  'Office Expense',
+];
+
+function extractUserEntryOptions(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    const cleaned = raw
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter((item) => item.length > 0);
+    if (cleaned.length > 0) return cleaned;
+  }
+  return [...DEFAULT_USER_ENTRY_OPTIONS];
+}
 
 export async function getSettings() {
   return prisma.appSetting.upsert({
     where: { id: 1 },
     update: {},
-    create: { id: 1, timezone: env.APP_TIMEZONE },
+    create: { id: 1, timezone: env.APP_TIMEZONE, userEntryOptions: DEFAULT_USER_ENTRY_OPTIONS },
   });
 }
 
@@ -22,6 +43,7 @@ function serializeSettings(row: Awaited<ReturnType<typeof getSettings>>) {
     businessEmail: row.businessEmail,
     currencySymbol: row.currencySymbol,
     timezone: row.timezone,
+    userEntryOptions: extractUserEntryOptions(row.userEntryOptions),
     updatedAt: row.updatedAt.toISOString(),
   };
 }
@@ -63,6 +85,39 @@ export async function updateSettings(input: SettingsUpdateBody, actorId: number)
     return updated;
   });
   return { business: serializeSettings(after), today: todayInTimeZone(after.timezone) };
+}
+
+export async function updateEntryOptions(input: EntryOptionsBody, actorId: number) {
+  await getSettings();
+  const seen = new Set<string>();
+  const uniqueOptions: string[] = [];
+  for (const raw of input.options) {
+    const clean = raw.trim();
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueOptions.push(clean);
+    }
+  }
+  const updated = await prisma.$transaction(async (tx) => {
+    const after = await tx.appSetting.update({
+      where: { id: 1 },
+      data: { userEntryOptions: uniqueOptions },
+    });
+    await writeAudit(tx, {
+      action: 'USER_ENTRY_OPTIONS_UPDATED',
+      entityType: 'AppSetting',
+      entityId: 1,
+      actorId,
+      details: { options: uniqueOptions },
+    });
+    return after;
+  });
+  return {
+    business: serializeSettings(updated),
+    userEntryOptions: extractUserEntryOptions(updated.userEntryOptions),
+  };
 }
 
 export async function changePassword(input: PasswordChangeBody, adminId: number, currentSessionId: string | undefined): Promise<void> {

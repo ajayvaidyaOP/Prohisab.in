@@ -64,26 +64,44 @@ export const PAYMENT_METHOD_OPTIONS = [
 
 export const TRANSACTION_TYPE_OPTIONS = {
   CUSTOMER: [
-    { value: 'CREDIT_SALE', label: 'Credit sale / amount due' },
-    { value: 'PAYMENT_RECEIVED', label: 'Payment received' },
-    { value: 'CUSTOMER_CREDIT_ADJUSTMENT', label: 'Credit / refund adjustment' },
+    { value: 'CREDIT_SALE', label: '+ Deposit (Money Added / Jama)' },
+    { value: 'PAYMENT_RECEIVED', label: '- Withdrawal (Money Withdrawn / Nikala)' },
+    { value: 'CUSTOMER_CREDIT_ADJUSTMENT', label: 'Balance Adjustment' },
   ],
   SUPPLIER: [
-    { value: 'CREDIT_PURCHASE', label: 'Credit purchase / amount owed' },
-    { value: 'PAYMENT_MADE', label: 'Payment made' },
-    { value: 'SUPPLIER_CREDIT_ADJUSTMENT', label: 'Credit / return adjustment' },
+    { value: 'CREDIT_PURCHASE', label: '+ Deposit (Money Added / Jama)' },
+    { value: 'PAYMENT_MADE', label: '- Withdrawal (Money Withdrawn / Nikala)' },
+    { value: 'SUPPLIER_CREDIT_ADJUSTMENT', label: 'Balance Adjustment' },
   ],
 } as const;
 
 /** Explains, in plain words, what a transaction type does to the account. */
 export const TYPE_EFFECT: Record<string, string> = {
-  CREDIT_SALE: 'Increases what the customer owes you (receivable).',
-  PAYMENT_RECEIVED: 'Reduces what the customer owes you (receivable).',
-  CUSTOMER_CREDIT_ADJUSTMENT: 'Reduces the receivable, for example a refund or credit note given to the customer.',
-  CREDIT_PURCHASE: 'Increases what you owe the supplier (payable).',
-  PAYMENT_MADE: 'Reduces what you owe the supplier (payable).',
-  SUPPLIER_CREDIT_ADJUSTMENT: 'Reduces the payable, for example a return or credit note from the supplier.',
+  CREDIT_SALE: 'Deposit (+): Increases the user’s balance.',
+  PAYMENT_RECEIVED: 'Withdrawal (-): Reduces the user’s balance.',
+  CUSTOMER_CREDIT_ADJUSTMENT: 'Adjusts the user’s balance.',
+  CREDIT_PURCHASE: 'Deposit (+): Increases the user’s balance.',
+  PAYMENT_MADE: 'Withdrawal (-): Reduces the user’s balance.',
+  SUPPLIER_CREDIT_ADJUSTMENT: 'Adjusts the user’s balance.',
 };
+
+export function displayEntryLabel(type: string, fallback?: string): string {
+  switch (type) {
+    case 'CREDIT_PURCHASE':
+    case 'CREDIT_SALE':
+      return '+ Deposit';
+    case 'PAYMENT_MADE':
+    case 'PAYMENT_RECEIVED':
+      return '- Withdrawal';
+    case 'SUPPLIER_CREDIT_ADJUSTMENT':
+    case 'CUSTOMER_CREDIT_ADJUSTMENT':
+      return 'Adjustment';
+    case 'REVERSAL':
+      return 'Reversal';
+    default:
+      return fallback ?? type;
+  }
+}
 
 /** Accepts up to 2 decimals and the common comma grouping. Returns the cleaned value or null if invalid. */
 export function cleanAmountInput(raw: string): string | null {
@@ -102,3 +120,25 @@ export function addDaysIso(iso: string, days: number): string {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** Returns { from, to, label } for This Month (offset=0) or Last Month (offset=-1). */
+export function getMonthRange(todayIso: string, offsetMonths: 0 | -1): { from: string; to: string; label: string } {
+  const [yRaw, mRaw] = todayIso.split('-').map(Number);
+  const baseYear = yRaw || new Date().getUTCFullYear();
+  const baseMonthIndex = (mRaw || new Date().getUTCMonth() + 1) - 1;
+  const targetDate = new Date(Date.UTC(baseYear, baseMonthIndex + offsetMonths, 1));
+  const year = targetDate.getUTCFullYear();
+  const month = targetDate.getUTCMonth(); // 0..11
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const mm = String(month + 1).padStart(2, '0');
+  const from = `${year}-${mm}-01`;
+  const to = offsetMonths === 0 ? todayIso : `${year}-${mm}-${String(lastDay).padStart(2, '0')}`;
+  return {
+    from,
+    to,
+    label: `${MONTH_NAMES[month]} ${year}`,
+  };
+}
+
