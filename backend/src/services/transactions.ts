@@ -114,7 +114,8 @@ export async function insertEntry(tx: Tx, input: NewEntry, actorId: bigint, role
     target.backDateAllowedDate ? dbDateToIso(target.backDateAllowedDate) : null);
   const optionName = await validateOption(tx, input.optionName);
   await validateBook(tx, input.accountId, input.bookId ?? null, role === 'USER');
-  const pending = role === 'USER';
+  // Deposits are posted immediately for staff; withdrawals remain queued for review.
+  const pending = role === 'USER' && input.kind === 'WITHDRAWAL';
   const row = await tx.transaction.create({ data: {
     userId: input.accountId, kind: input.kind, entryDate: isoDateToDbDate(input.entryDate),
     amount: input.amount, optionName, detail: nullableString(input.detail),

@@ -54,9 +54,6 @@ export default function DashboardPage() {
   const [flashMessage, setFlashMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Admin Options for User Deposit / Withdrawal Entry
-  const [newOptionText, setNewOptionText] = useState('');
-
   // Quick Deposit / Withdrawal Modal
   const [settleTarget, setSettleTarget] = useState<DashboardUserOverview | null>(null);
   const [settleKind, setSettleKind] = useState<'WITHDRAWAL' | 'DEPOSIT'>('WITHDRAWAL');
@@ -83,33 +80,6 @@ export default function DashboardPage() {
   const [downloadingPdfId, setDownloadingPdfId] = useState<number | null>(null);
   const [downloadingSummaryPdf, setDownloadingSummaryPdf] = useState(false);
 
-  const entryOptions =
-    settings.data?.business.userEntryOptions && settings.data.business.userEntryOptions.length > 0
-      ? settings.data.business.userEntryOptions
-      : [
-          'Cash Deposit',
-          'UPI / Bank Deposit',
-          'Cash Withdrawal',
-          'UPI / Bank Withdrawal',
-          'Site Material',
-          'Petrol / Transport',
-          'Hardware Bill',
-          'Office Expense',
-        ];
-
-  const updateOptionsMutation = useMutation({
-    mutationFn: (nextOptions: string[]) => api.settings.updateEntryOptions(nextOptions),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['settings'] });
-      setFlashMessage('User selection options updated!');
-      setErrorMessage(null);
-      setNewOptionText('');
-    },
-    onError: (err) => {
-      setErrorMessage(err instanceof ApiError ? err.message : 'Could not update options.');
-    },
-  });
-
   const passwordResetMutation = useMutation({
     mutationFn: () => api.accounts.resetPassword(passTarget!.id, { newPassword: newPassValue, confirmPassword: newPassValue }),
     onSuccess: () => {
@@ -123,26 +93,6 @@ export default function DashboardPage() {
       setPassError(err instanceof ApiError ? err.message : 'Could not update password.');
     },
   });
-
-  const onAddOption = (e: FormEvent) => {
-    e.preventDefault();
-    const clean = newOptionText.trim();
-    if (!clean) return;
-    if (entryOptions.some((o) => o.toLowerCase() === clean.toLowerCase())) {
-      setNewOptionText('');
-      return;
-    }
-    updateOptionsMutation.mutate([...entryOptions, clean]);
-  };
-
-  const onRemoveOption = (optToRemove: string) => {
-    const next = entryOptions.filter((o) => o !== optToRemove);
-    if (next.length === 0) {
-      setErrorMessage('At least 1 option must remain for users to select.');
-      return;
-    }
-    updateOptionsMutation.mutate(next);
-  };
 
   const onPassResetSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -445,18 +395,6 @@ export default function DashboardPage() {
           </div>
         </Card>
 
-        <Card className="border-l-4 border-l-amber-500">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Pending User Approvals
-          </div>
-          <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-amber-700">
-            {formatAmount(totals.pendingSubmissionsAmount ?? '0.00', symbol)}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">
-            {totals.pendingSubmissionsCount ?? 0} Deposit / Withdrawal {(totals.pendingSubmissionsCount ?? 0) === 1 ? 'request' : 'requests'} waiting
-          </div>
-        </Card>
-
         <Card className="border-l-4 border-l-slate-500">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Total Entries
@@ -490,62 +428,16 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Admin-Defined Select Options for Users */}
-      <Card className="border-emerald-200 bg-emerald-50/30">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-900">
-              User Deposit / Withdrawal Options (Jo User Select Karega)
-            </h2>
-            <p className="text-xs text-slate-500">
-              Yahan jo options aap add karenge, User Deposit/Withdrawal karte waqt wahi select kar payega
-            </p>
-          </div>
-          <Badge tone="emerald">{entryOptions.length} options</Badge>
-        </div>
-
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {entryOptions.map((opt) => (
-            <span
-              key={opt}
-              className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 shadow-2xs"
-            >
-              {opt}
-              <button
-                type="button"
-                onClick={() => onRemoveOption(opt)}
-                disabled={updateOptionsMutation.isPending}
-                className="text-slate-400 hover:text-rose-600"
-                title={`Remove ${opt}`}
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-        </div>
-
-        <form onSubmit={onAddOption} className="mt-3 flex gap-2">
-          <TextInput
-            placeholder="Add new option (e.g. Cash Deposit, ATM Withdrawal, Diesel…)"
-            value={newOptionText}
-            onChange={(e) => setNewOptionText(e.target.value)}
-          />
-          <Button type="submit" variant="secondary" loading={updateOptionsMutation.isPending} className="shrink-0">
-            <Plus className="h-4 w-4" /> Add Option
-          </Button>
-        </form>
-      </Card>
-
       {/* Pending Submissions Queue (Admin Approval Section) */}
       {pendingEntries.length > 0 ? (
         <Card padded={false} className="overflow-hidden border-amber-300">
           <div className="border-b border-amber-200 bg-amber-50/70 px-5 py-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-semibold text-slate-900">
-                Pending Deposit & Withdrawal Requests — Awaiting Approval ({pendingEntries.length})
+                Pending Withdrawal Requests — Awaiting Approval ({pendingEntries.length})
               </h2>
               <p className="text-xs text-slate-600">
-                User-submitted Deposits (+) and Withdrawals (-) only update the balance after you approve them.
+                User-submitted withdrawals (-) update the balance after you approve them.
               </p>
             </div>
             <Badge tone="amber">{pendingEntries.length} pending</Badge>
