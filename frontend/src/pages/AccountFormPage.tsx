@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Eye, EyeOff, UserPlus } from 'lucide-react';
 import { api, ApiError } from '../lib/api';
-import { invalidateFinancial, useIdempotentKey } from '../lib/queries';
+import { invalidateFinancial, useIdempotentKey, useSettings } from '../lib/queries';
 import { Alert, Button, ButtonLink, Card, Field, PageHeader, Skeleton, TextInput } from '../components/ui';
 
 interface FormState {
@@ -33,6 +33,7 @@ export default function AccountFormPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const idempotency = useIdempotentKey();
+  const settings = useSettings();
 
   const existing = useQuery({
     queryKey: ['account', accountId],
@@ -41,11 +42,12 @@ export default function AccountFormPage() {
   });
 
   const [form, setForm] = useState<FormState>(EMPTY);
-  const [showPassword, setShowPassword] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState | 'form' | 'resetForm' | 'resetDone', string>>>({});
   const [loadedId, setLoadedId] = useState<number | null>(null);
-  const [backDateAllowed, setBackDateAllowed] = useState(false);
+  const [backDateDate, setBackDateDate] = useState('');
   const [backDateSaving, setBackDateSaving] = useState(false);
+  const [backDateMessage, setBackDateMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     if (!existing.data || loadedId === existing.data.account.id) return;
@@ -56,6 +58,7 @@ export default function AccountFormPage() {
       confirmPassword: '',
       pin: '',
     });
+    setBackDateDate(a.backDateAllowedDate ?? '');
     setLoadedId(a.id);
   }, [existing.data, loadedId]);
 
@@ -99,7 +102,7 @@ export default function AccountFormPage() {
         state: {
           flash: editing
             ? `User "${result.account.name}" updated successfully.`
-            : `User "${result.account.name}" created! Login Name: ${result.account.name} | Password: ${form.password}`,
+            : `User "${result.account.name}" created. Share the configured PIN/password securely.`,
         },
       });
     },
@@ -141,8 +144,9 @@ export default function AccountFormPage() {
     if (cleanName.length < 2) next.name = 'Enter the user’s name (at least 2 characters).';
 
     if (!editing) {
-      if (!form.password) next.password = `Enter a password for this user. ${PASSWORD_HINT}`;
-      else if (isWeakPassword(form.password)) next.password = `Password too weak. ${PASSWORD_HINT}`;
+      if (!form.password && !form.pin) next.pin = 'Enter a 4-digit PIN or an account password.';
+      if (form.password && isWeakPassword(form.password)) next.password = `Password too weak. ${PASSWORD_HINT}`;
+      if (form.pin && !/^\d{4}$/.test(form.pin)) next.pin = 'Enter exactly 4 digits.';
     }
 
     setErrors(next);
@@ -166,7 +170,7 @@ export default function AccountFormPage() {
         description={
           editing
             ? 'Update the user’s name or set a new password.'
-            : 'Sirf User ka Naam aur Password daalein — user direct create ho jayega.'
+            : 'Enter the staff name and a 4-digit PIN; an account password is optional.'
         }
         actions={<ButtonLink to="/accounts">Cancel</ButtonLink>}
       />
@@ -177,7 +181,7 @@ export default function AccountFormPage() {
 
           <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
             <UserPlus className="h-4 w-4 text-indigo-600" />
-            <h2 className="text-sm font-semibold text-slate-900">User Name & Password</h2>
+            <h2 className="text-sm font-semibold text-slate-900">Staff Login Details</h2>
           </div>
 
           <Field label="User Name (Naam)" required error={errors.name}>
@@ -197,10 +201,9 @@ export default function AccountFormPage() {
 
           {!editing && (
           <Field
-            label={'Password'}
-            required
+            label="Account Password (optional)"
             error={errors.password}
-            hint={PASSWORD_HINT}
+            hint={`Leave blank to use PIN login only. ${PASSWORD_HINT}`}
           >
             {(fid, describedBy) => (
               <div className="relative">
@@ -230,7 +233,7 @@ export default function AccountFormPage() {
           )}
 
           {!editing && (
-            <Field label="Staff PIN (4-digit, optional)" hint="Used for Staff PIN Login. Leave blank to disable PIN login.">
+            <Field label="Staff PIN" required={!form.password} error={errors.pin} hint="Exactly 4 digits; used for Staff PIN Login.">
               {(fid, describedBy) => (
                 <TextInput
                   id={fid}
@@ -238,10 +241,11 @@ export default function AccountFormPage() {
                   inputMode="numeric"
                   placeholder="e.g. 1234"
                   value={form.pin}
-                  onChange={(e) => set('pin', e.target.value.replace(/\D/g, '').slice(0, 10))}
-                  maxLength={10}
+                  onChange={(e) => set('pin', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  maxLength={4}
                   aria-describedby={describedBy}
                   autoComplete="new-password"
+                  invalid={!!errors.pin}
                 />
               )}
             </Field>
@@ -262,27 +266,46 @@ export default function AccountFormPage() {
             <UserPlus className="h-4 w-4 text-indigo-600" />
             <h2 className="text-sm font-semibold text-slate-900">Back Date Entry Permission</h2>
           </div>
-          <p className="mb-4 text-sm text-slate-600">Allow this user to submit entries for past dates.</p>
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-slate-700">{backDateAllowed ? 'Allowed' : 'Not allowed'}</span>
-            <Button
-              variant="secondary"
-              loading={backDateSaving}
-              onClick={async () => {
-                setBackDateSaving(true);
-                try {
-                  await api.accounts.setBackDate(accountId, !backDateAllowed);
-                  setBackDateAllowed((v) => !v);
-                } catch (e) {
-                  alert(e instanceof Error ? e.message : 'Failed');
-                } finally {
-                  setBackDateSaving(false);
-                }
-              }}
-            >
-              {backDateAllowed ? 'Revoke' : 'Grant Back Date'}
-            </Button>
+          <p className="mb-4 text-sm text-slate-600">Grant entry access for one specific date. Other past dates remain blocked for this user.</p>
+          {backDateMessage && <Alert tone={backDateMessage.tone}>{backDateMessage.text}</Alert>}
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="flex-1">
+              <Field label="Allow entry for date">
+                {(id) => <TextInput id={id} type="date" max={settings.data?.today ?? undefined} value={backDateDate} onChange={(e) => setBackDateDate(e.target.value)} />}
+              </Field>
+            </div>
+            <Button loading={backDateSaving} disabled={!backDateDate} onClick={async () => {
+              setBackDateSaving(true);
+              setBackDateMessage(null);
+              try {
+                const response = await api.accounts.setBackDate(accountId, backDateDate);
+                setBackDateDate(response.account.backDateAllowedDate ?? '');
+                setBackDateMessage({ tone: 'success', text: `Permission active for ${response.account.backDateAllowedDate}.` });
+                qc.setQueryData(['account', accountId], response);
+                void qc.invalidateQueries({ queryKey: ['accounts'] });
+              } catch (e) {
+                setBackDateMessage({ tone: 'error', text: e instanceof Error ? e.message : 'Could not grant back-date access.' });
+              } finally {
+                setBackDateSaving(false);
+              }
+            }}>Grant Back Date</Button>
+            {account?.backDateAllowedDate && <Button variant="danger" loading={backDateSaving} onClick={async () => {
+              setBackDateSaving(true);
+              setBackDateMessage(null);
+              try {
+                const response = await api.accounts.setBackDate(accountId, null);
+                setBackDateDate('');
+                setBackDateMessage({ tone: 'success', text: 'Back-date permission revoked.' });
+                qc.setQueryData(['account', accountId], response);
+                void qc.invalidateQueries({ queryKey: ['accounts'] });
+              } catch (e) {
+                setBackDateMessage({ tone: 'error', text: e instanceof Error ? e.message : 'Could not revoke back-date access.' });
+              } finally {
+                setBackDateSaving(false);
+              }
+            }}>Revoke</Button>}
           </div>
+          <p className="mt-2 text-xs text-slate-500">{account?.backDateAllowedDate ? `Permission active for ${account.backDateAllowedDate}.` : 'No back date permission.'}</p>
         </Card>
       )}
 

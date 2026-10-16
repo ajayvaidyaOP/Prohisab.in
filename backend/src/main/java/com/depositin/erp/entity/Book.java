@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 
 import java.time.Instant;
 
@@ -36,6 +37,10 @@ public class Book {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    /** Populated for API responses; not persisted. */
+    @Transient
+    private long entryCount;
+
     @PrePersist
     void onCreate() {
         Instant now = Instant.now();
@@ -56,4 +61,6 @@ public class Book {
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+    public long getEntryCount() { return entryCount; }
+    public void setEntryCount(long entryCount) { this.entryCount = entryCount; }
 }

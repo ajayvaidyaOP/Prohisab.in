@@ -61,6 +61,7 @@ export default function BooksPage() {
               <tr>
                 <th className="px-4 py-3 text-left">Book ID</th>
                 <th className="px-4 py-3 text-left">Name</th>
+                <th className="px-4 py-3 text-right">Entries</th>
                 <th className="px-4 py-3 text-left">Status</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
@@ -70,6 +71,7 @@ export default function BooksPage() {
                 <tr key={b.id}>
                   <td className="px-4 py-3 font-mono">#{b.id}</td>
                   <td className="px-4 py-3 font-medium">{b.name}</td>
+                  <td className="px-4 py-3 text-right font-mono">{b.entryCount ?? 0}</td>
                   <td className="px-4 py-3">
                     <Badge tone={b.status === 'ACTIVE' ? 'emerald' : 'slate'}>{b.status}</Badge>
                   </td>

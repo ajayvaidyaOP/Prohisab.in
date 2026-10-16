@@ -47,18 +47,19 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Public endpoints
                         .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/pin-login").permitAll()
                         // Admin-only surfaces
                         .requestMatchers("/api/dashboard/**").hasRole("ADMIN")
                         .requestMatchers("/api/audit-logs/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/accounts").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/accounts/options").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/accounts").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/accounts/*/books", "/api/accounts/*/pin").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PATCH, "/api/accounts/**").hasRole("ADMIN")
                         .requestMatchers("/api/accounts/*/reset-password").hasRole("ADMIN")
                         .requestMatchers("/api/accounts/*/ledger.pdf").hasRole("ADMIN")
                         .requestMatchers("/api/accounts/*/ledger.csv").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.GET, "/api/transactions").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/transactions", "/api/transactions/multi-report", "/api/transactions/multi-report.pdf").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/transactions/*/approve").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/transactions/*/reject").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/transactions/*/reversal").hasRole("ADMIN")

@@ -19,7 +19,8 @@ public final class DashboardDtos {
             long entriesToday,
             long customersWithBalance,
             long suppliersWithBalance,
-            long pendingSubmissionsCount) {
+            long pendingSubmissionsCount,
+            long activeBooks) {
     }
 
     public record UserLedgerTotals(

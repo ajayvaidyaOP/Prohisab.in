@@ -28,8 +28,7 @@ public class BookController {
 
     @GetMapping
     public List<Book> list() {
-        SecurityUtils.requireUser();
-        return books.listAll();
+        return books.listFor(SecurityUtils.requireUser());
     }
 
     @PostMapping

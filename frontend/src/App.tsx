@@ -18,6 +18,7 @@ const TransactionsPage = lazy(() => import('./pages/TransactionsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const BooksPage = lazy(() => import('./pages/BooksPage'));
 const MultiReportPage = lazy(() => import('./pages/MultiReportPage'));
+const AuditPage = lazy(() => import('./pages/AuditPage'));
 
 function HomeRouter() {
   const me = useMe();
@@ -84,6 +85,7 @@ export default function App() {
           <Route path="transactions" element={<Suspense fallback={<PageSkeleton />}><AdminOnly><TransactionsPage /></AdminOnly></Suspense>} />
           <Route path="transactions/new" element={<Suspense fallback={<PageSkeleton />}><AdminOnly><NewTransactionPage /></AdminOnly></Suspense>} />
           <Route path="settings" element={<Suspense fallback={<PageSkeleton />}><AdminOnly><SettingsPage /></AdminOnly></Suspense>} />
+          <Route path="audit" element={<Suspense fallback={<PageSkeleton />}><AdminOnly><AuditPage /></AdminOnly></Suspense>} />
           <Route path="books" element={<Suspense fallback={<PageSkeleton />}><AdminOnly><BooksPage /></AdminOnly></Suspense>} />
           <Route path="multi-report" element={<Suspense fallback={<PageSkeleton />}><AdminOnly><MultiReportPage /></AdminOnly></Suspense>} />
           <Route path="*" element={<NotFound />} />

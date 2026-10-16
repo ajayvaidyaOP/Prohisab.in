@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDownLeft, ArrowUpRight, FileDown, KeyRound, Plus, Trash2 } from 'lucide-react';
@@ -20,13 +20,36 @@ import {
   TextInput,
 } from '../components/ui';
 
+type DashboardFilter = { from?: string; to?: string; bookId?: number; userId?: number };
+
 export default function DashboardPage() {
   const queryClient = useQueryClient();
   const settings = useSettings();
-  const { data, isPending, isError, error, refetch } = useQuery({
-    queryKey: ['dashboard'],
-    queryFn: () => api.dashboard(),
+  const [pdfFrom, setPdfFrom] = useState('');
+  const [pdfTo, setPdfTo] = useState('');
+  const [pdfBookId, setPdfBookId] = useState('');
+  const [pdfUserId, setPdfUserId] = useState('');
+  const [appliedFilters, setAppliedFilters] = useState<DashboardFilter>({});
+  const [filterInitialized, setFilterInitialized] = useState(false);
+
+  useEffect(() => {
+    if (!settings.data?.today || filterInitialized) return;
+    setPdfFrom(settings.data.today);
+    setPdfTo(settings.data.today);
+    setAppliedFilters({ from: settings.data.today, to: settings.data.today });
+    setFilterInitialized(true);
+  }, [settings.data?.today, filterInitialized]);
+
+  const dashboardQuery = useQuery({
+    queryKey: ['dashboard', 'filtered', appliedFilters],
+    queryFn: () => api.dashboard(appliedFilters),
   });
+  const { data, isPending, isError, error, refetch } = dashboardQuery;
+  const filterUsersQuery = useQuery({
+    queryKey: ['dashboard-filter-users'],
+    queryFn: () => api.accounts.options({}),
+  });
+  const booksQuery = useQuery({ queryKey: ['books'], queryFn: api.books.list });
 
   const [flashMessage, setFlashMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -57,8 +80,6 @@ export default function DashboardPage() {
 
   // PDF Download States (All Users Summary PDF + Month Filter in Bottom Table)
   const [pdfPeriod, setPdfPeriod] = useState<'ALL' | 'THIS_MONTH' | 'LAST_MONTH'>('ALL');
-  const [pdfFrom, setPdfFrom] = useState('');
-  const [pdfTo, setPdfTo] = useState('');
   const [downloadingPdfId, setDownloadingPdfId] = useState<number | null>(null);
   const [downloadingSummaryPdf, setDownloadingSummaryPdf] = useState(false);
 
@@ -90,17 +111,10 @@ export default function DashboardPage() {
   });
 
   const passwordResetMutation = useMutation({
-    mutationFn: () =>
-      api.accounts.update(passTarget!.id, {
-        name: passTarget!.name,
-        username: passTarget!.username ?? passTarget!.name,
-        password: newPassValue,
-      }),
-    onSuccess: (res) => {
-      invalidateFinancial(queryClient, res.account.id);
-      setFlashMessage(
-        `Password updated for "${res.account.name}"! Login Name: ${res.account.name} | New Password: ${newPassValue}`,
-      );
+    mutationFn: () => api.accounts.resetPassword(passTarget!.id, { newPassword: newPassValue, confirmPassword: newPassValue }),
+    onSuccess: () => {
+      invalidateFinancial(queryClient, passTarget!.id);
+      setFlashMessage(`Password updated for "${passTarget!.name}". Share the new password securely.`);
       setPassTarget(null);
       setNewPassValue('');
       setPassError(null);
@@ -133,8 +147,8 @@ export default function DashboardPage() {
   const onPassResetSubmit = (e: FormEvent) => {
     e.preventDefault();
     setPassError(null);
-    if (newPassValue.length < 4) {
-      setPassError('Password must be at least 4 characters.');
+    if (newPassValue.length < 6 || !/[A-Za-z]/.test(newPassValue) || !/\d/.test(newPassValue)) {
+      setPassError('Use at least 6 characters with both letters and numbers.');
       return;
     }
     passwordResetMutation.mutate();
@@ -160,10 +174,24 @@ export default function DashboardPage() {
     }
   };
 
+  const applyDashboardFilters = () => {
+    setErrorMessage(null);
+    if (pdfFrom && pdfTo && pdfFrom > pdfTo) {
+      setErrorMessage('From date must be on or before To date.');
+      return;
+    }
+    setAppliedFilters({
+      from: pdfFrom || undefined,
+      to: pdfTo || undefined,
+      bookId: pdfBookId ? Number(pdfBookId) : undefined,
+      userId: pdfUserId ? Number(pdfUserId) : undefined,
+    });
+  };
+
   const handleDownloadSummaryPdf = async () => {
     try {
       setDownloadingSummaryPdf(true);
-      await api.ledger.downloadAllUsersSummaryPdf({ from: pdfFrom || undefined, to: pdfTo || undefined });
+      await api.ledger.downloadAllUsersSummaryPdf(appliedFilters);
     } catch (err) {
       setErrorMessage(err instanceof ApiError ? err.message : 'Could not download All Users Summary PDF.');
     } finally {
@@ -318,25 +346,47 @@ export default function DashboardPage() {
       {errorMessage ? <Alert tone="error">{errorMessage}</Alert> : null}
 
       <Card>
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="min-w-[140px]">
-            <Field label="From Date">
-              {(id) => <TextInput id={id} type="date" value={pdfFrom} onChange={(e) => setPdfFrom(e.target.value)} />}
-            </Field>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Field label="From Date">
+            {(id) => <TextInput id={id} type="date" value={pdfFrom} max={pdfTo || undefined} onChange={(e) => setPdfFrom(e.target.value)} />}
+          </Field>
+          <Field label="To Date">
+            {(id) => <TextInput id={id} type="date" value={pdfTo} min={pdfFrom || undefined} onChange={(e) => setPdfTo(e.target.value)} />}
+          </Field>
+          <Field label="Book">
+            {(id) => (
+              <SelectInput id={id} value={pdfBookId} onChange={(e) => setPdfBookId(e.target.value)}>
+                <option value="">All books</option>
+                {(booksQuery.data ?? []).map((book) => (
+                  <option key={book.id} value={book.id}>{book.name}{book.status === 'ARCHIVED' ? ' (Archived)' : ''}</option>
+                ))}
+              </SelectInput>
+            )}
+          </Field>
+          <Field label="User">
+            {(id) => (
+              <SelectInput id={id} value={pdfUserId} onChange={(e) => setPdfUserId(e.target.value)}>
+                <option value="">All users</option>
+                {(filterUsersQuery.data?.items ?? []).map((user) => (
+                  <option key={user.id} value={user.id}>{user.name}</option>
+                ))}
+              </SelectInput>
+            )}
+          </Field>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-slate-500">Filters apply to dashboard totals, entries and the PDF report.</p>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="primary" loading={dashboardQuery.isFetching} onClick={applyDashboardFilters}>Apply</Button>
+            <Button variant="secondary" loading={downloadingSummaryPdf} onClick={() => void handleDownloadSummaryPdf()}>
+              <FileDown className="h-3.5 w-3.5" /> Print / Save PDF Report
+            </Button>
           </div>
-          <div className="min-w-[140px]">
-            <Field label="To Date">
-              {(id) => <TextInput id={id} type="date" value={pdfTo} onChange={(e) => setPdfTo(e.target.value)} />}
-            </Field>
-          </div>
-          <Button variant="secondary" loading={downloadingSummaryPdf} onClick={() => void handleDownloadSummaryPdf()}>
-            <FileDown className="h-3.5 w-3.5" /> Print / Save PDF Report
-          </Button>
         </div>
       </Card>
 
-      {/* 4 Summary Cards (Deposit & Withdrawal) */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
+      {/* Filtered dashboard totals */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card className="border-l-4 border-l-emerald-600">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Total Deposits (+ Approved)
@@ -407,6 +457,14 @@ export default function DashboardPage() {
           <div className="mt-1 text-xs text-slate-500">
             {data.counts.activeUsers ?? 0} active
           </div>
+        </Card>
+
+        <Card className="border-l-4 border-l-violet-500">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Active Books</div>
+          <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-violet-700">
+            {data.counts.activeBooks ?? 0}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">Available ledgers / websites</div>
         </Card>
       </div>
 
@@ -572,8 +630,8 @@ export default function DashboardPage() {
                 {(fid) => (
                   <TextInput
                     id={fid}
-                    type="text"
-                    placeholder="Enter new password (min 4 chars, e.g. rahul456)"
+                    type="password"
+                    placeholder="At least 6 characters with letters and numbers"
                     value={newPassValue}
                     onChange={(e) => setNewPassValue(e.target.value)}
                   />

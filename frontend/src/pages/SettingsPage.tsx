@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../lib/api';
 import { formatDate, formatDateTime } from '../lib/format';
-import { Alert, Badge, Button, Card, Field, PageHeader, Pagination, SelectInput, Skeleton, TextArea, TextInput } from '../components/ui';
+import { Alert, Badge, Button, ButtonLink, Card, Field, PageHeader, Pagination, SelectInput, Skeleton, TextArea, TextInput } from '../components/ui';
 
 const TIME_ZONES = [
   'Asia/Kolkata',
@@ -26,6 +26,18 @@ const ACTION_LABELS: Record<string, string> = {
   ACCOUNT_UPDATED: 'Account updated',
   ACCOUNT_DEACTIVATED: 'Account deactivated',
   ACCOUNT_REACTIVATED: 'Account reactivated',
+  USER_CREATED: 'Staff account created',
+  USER_UPDATED: 'Staff account updated',
+  USER_ACTIVATED: 'Staff account activated',
+  USER_DEACTIVATED: 'Staff account deactivated',
+  USER_BOOKS_UPDATED: 'Book access changed',
+  USER_BACKDATE_UPDATED: 'Back-date permission changed',
+  PIN_RESET: 'PIN reset',
+  PIN_DISABLED: 'PIN disabled',
+  PASSWORD_RESET: 'Password reset',
+  BOOK_CREATED: 'Book created',
+  BOOK_ARCHIVED: 'Book archived',
+  BOOK_RESTORED: 'Book restored',
   LEDGER_ENTRY_CREATED: 'Transaction posted',
   TRANSACTION_CREATED: 'Transaction posted',
   TRANSACTION_APPROVED: 'Transaction approved',
@@ -92,7 +104,10 @@ export default function SettingsPage() {
             <h2 className="text-base font-semibold text-slate-900">Activity log</h2>
             <p className="text-sm text-slate-600">Who changed what and when. Entries cannot be edited or deleted.</p>
           </div>
-          <Badge tone="slate">Time zone: {timezone}</Badge>
+          <div className="flex items-center gap-2">
+            <Badge tone="slate">Time zone: {timezone}</Badge>
+            <ButtonLink to="/audit" variant="secondary" className="!px-3 !py-1.5">Open full audit</ButtonLink>
+          </div>
         </div>
         {audit.isPending ? (
           <Skeleton className="h-48" />
@@ -278,9 +293,15 @@ function BusinessForm({
           <Field label="Email" error={errors.businessEmail}>
             {(id, describedBy) => <TextInput id={id} type="email" value={form.businessEmail} onChange={(e) => set('businessEmail', e.target.value)} maxLength={190} aria-describedby={describedBy} />}
           </Field>
-          <Field label="Logo URL" error={errors.logoUrl}>
-            {(id, describedBy) => <TextInput id={id} value={form.logoUrl} onChange={(e) => set('logoUrl', e.target.value)} maxLength={500} aria-describedby={describedBy} placeholder="https://..." />}
+          <Field label="Logo URL" error={errors.logoUrl} hint="This logo appears in the app header and on this profile preview.">
+            {(id, describedBy) => <TextInput id={id} type="url" value={form.logoUrl} onChange={(e) => set('logoUrl', e.target.value)} maxLength={500} aria-describedby={describedBy} placeholder="https://..." />}
           </Field>
+          {form.logoUrl.trim() && (
+            <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <img src={form.logoUrl} alt="Business logo preview" onError={(event) => { event.currentTarget.style.visibility = 'hidden'; }} className="h-12 w-12 rounded-lg bg-white object-contain p-1" />
+              <span className="text-sm text-slate-600">Business logo preview</span>
+            </div>
+          )}
           <Field label="Currency symbol" required error={errors.currencySymbol}>
             {(id, describedBy) => <TextInput id={id} value={form.currencySymbol} onChange={(e) => set('currencySymbol', e.target.value)} maxLength={8} aria-describedby={describedBy} invalid={!!errors.currencySymbol} />}
           </Field>

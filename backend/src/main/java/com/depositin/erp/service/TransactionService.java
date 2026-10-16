@@ -93,6 +93,10 @@ public class TransactionService {
                     "The date cannot be in the future (today is " + dates.today() + ").",
                     List.of(new ApiException.FieldError("entryDate", "Choose today or an earlier date.")));
         }
+        if (actor.role() == UserRole.USER && entryDate.isBefore(dates.today())
+                && !entryDate.equals(target.getBackDateAllowedDate())) {
+            throw ApiException.forbidden("Your administrator has not granted back-date permission for " + entryDate + ".");
+        }
 
         java.math.BigDecimal amount = money.parsePositive(request.amount(), "amount");
 
@@ -117,8 +121,21 @@ public class TransactionService {
         entry.setAmount(amount);
         entry.setOptionName(option);
         entry.setDetail(detail);
+        if (actor.role() == UserRole.USER && request.bookId() == null
+                && target.getAllowedBooks().stream().anyMatch(allowed -> allowed.getStatus() == Book.Status.ACTIVE)) {
+            throw ApiException.forbidden("Select an active book assigned by your administrator.");
+        }
         if (request.bookId() != null) {
-            books.findById(request.bookId()).ifPresent(entry::setBook);
+            Book book = books.findById(request.bookId())
+                    .orElseThrow(() -> ApiException.notFound("Book not found."));
+            if (book.getStatus() != Book.Status.ACTIVE) {
+                throw ApiException.unprocessable(ErrorCode.CONFLICT, "Archived books cannot receive new entries.");
+            }
+            if (actor.role() == UserRole.USER
+                    && target.getAllowedBooks().stream().noneMatch(allowed -> allowed.getId().equals(book.getId()))) {
+                throw ApiException.forbidden("Your administrator has not granted access to this book.");
+            }
+            entry.setBook(book);
         }
         entry.setCustomerId(blankToNull(request.customerId()));
         entry.setBankDetails(blankToNull(request.bankDetails()));
@@ -236,6 +253,21 @@ public class TransactionService {
         List<TransactionDtos.TransactionView> items = result.getContent().stream().map(this::toView).toList();
         return new TransactionDtos.TransactionListResponse(items,
                 new CommonDtos.Pagination(result.getNumber() + 1, result.getSize(), result.getTotalElements(), result.getTotalPages()));
+    }
+
+    /** Combined staff history used by the admin's multi-user report. */
+    @Transactional(readOnly = true)
+    public List<TransactionDtos.TransactionView> multiReport(List<Long> userIds, String from, String to, Long bookId) {
+        LocalDate fromDate = dates.parseDate(from);
+        LocalDate toDate = dates.parseDate(to);
+        if (fromDate != null && toDate != null && fromDate.isAfter(toDate)) {
+            throw ApiException.badRequest("From date must be on or before the To date.");
+        }
+        List<Long> filterIds = userIds == null || userIds.isEmpty()
+                ? users.findByRoleOrderByCreatedAtAsc(UserRole.USER).stream().map(UserAccount::getId).toList()
+                : userIds.stream().distinct().toList();
+        if (filterIds.isEmpty()) return List.of();
+        return transactions.multiReport(filterIds, fromDate, toDate, bookId).stream().map(this::toView).toList();
     }
 
     /** One entry, visible to admins and (only) to the owning user. */

@@ -71,14 +71,17 @@ public class LedgerService {
     /** Account summary DTO for one user (balances loaded lazily via aggregates). */
     @Transactional(readOnly = true)
     public AccountDtos.AccountSummary summarize(UserAccount user) {
-        BigDecimal deposits = transactions.sumApprovedByUserAndKind(user.getId(), TransactionKind.DEPOSIT, null, null);
-        BigDecimal withdrawals = transactions.sumApprovedByUserAndKind(user.getId(), TransactionKind.WITHDRAWAL, null, null);
+        // A controller may pass a detached UserAccount from a completed repository call.
+        // Reload inside this transaction so the lazy allowed-books association is safe to serialize.
+        UserAccount account = users.findById(user.getId()).orElse(user);
+        BigDecimal deposits = transactions.sumApprovedByUserAndKind(account.getId(), TransactionKind.DEPOSIT, null, null);
+        BigDecimal withdrawals = transactions.sumApprovedByUserAndKind(account.getId(), TransactionKind.WITHDRAWAL, null, null);
         BigDecimal net = deposits.subtract(withdrawals);
-        long entryCount = transactions.countByUserIdAndApprovalStatus(user.getId(), ApprovalStatus.APPROVED);
-        LocalDate lastEntry = transactions.findLastEntryDate(user.getId());
-        long pendingCount = transactions.countByUserIdAndApprovalStatus(user.getId(), ApprovalStatus.PENDING);
-        BigDecimal pendingAmount = transactions.sumPendingByUser(user.getId());
-        return toSummary(user, deposits, withdrawals, net, entryCount, lastEntry, pendingCount, pendingAmount);
+        long entryCount = transactions.countByUserIdAndApprovalStatus(account.getId(), ApprovalStatus.APPROVED);
+        LocalDate lastEntry = transactions.findLastEntryDate(account.getId());
+        long pendingCount = transactions.countByUserIdAndApprovalStatus(account.getId(), ApprovalStatus.PENDING);
+        BigDecimal pendingAmount = transactions.sumPendingByUser(account.getId());
+        return toSummary(account, deposits, withdrawals, net, entryCount, lastEntry, pendingCount, pendingAmount);
     }
 
     public AccountDtos.AccountSummary toSummary(UserAccount user,
@@ -119,7 +122,10 @@ public class LedgerService {
                 entryCount,
                 lastEntry == null ? null : lastEntry.toString(),
                 DateTimeFormatter.ISO_INSTANT.format(user.getCreatedAt()),
-                DateTimeFormatter.ISO_INSTANT.format(user.getUpdatedAt()));
+                DateTimeFormatter.ISO_INSTANT.format(user.getUpdatedAt()),
+                user.getPin() != null && !user.getPin().isBlank(),
+                user.getAllowedBooks().stream().map(book -> book.getId()).sorted().toList(),
+                user.getBackDateAllowedDate() == null ? null : user.getBackDateAllowedDate().toString());
     }
 
     public AccountDtos.Balance describeBalance(BigDecimal net) {
@@ -242,7 +248,7 @@ public class LedgerService {
     /** Users list for admins with filters. */
     @Transactional(readOnly = true)
     public AccountDtos.AccountListResponse listUsers(String search, String status, String sort, int page, int pageSize) {
-        List<UserAccount> usersAll = users.findAll();
+        List<UserAccount> usersAll = users.findByRoleOrderByCreatedAtAsc(UserRole.USER);
         String needle = search == null || search.isBlank() ? null : search.trim().toLowerCase();
         List<UserAccount> filtered = new ArrayList<>();
         for (UserAccount user : usersAll) {
@@ -286,7 +292,7 @@ public class LedgerService {
     public List<AccountDtos.AccountOption> accountOptions(String search) {
         String needle = search == null || search.isBlank() ? null : search.trim().toLowerCase();
         List<AccountDtos.AccountOption> items = new ArrayList<>();
-        for (UserAccount user : users.findAll()) {
+        for (UserAccount user : users.findByRoleOrderByCreatedAtAsc(UserRole.USER)) {
             if (needle != null && !user.getName().toLowerCase().contains(needle)
                     && !user.getAccountCode().toLowerCase().contains(needle)) {
                 continue;

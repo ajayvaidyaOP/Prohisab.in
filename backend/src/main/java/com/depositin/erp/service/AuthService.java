@@ -80,7 +80,7 @@ public class AuthService {
         Optional<UserAccount> found = users.findByPin(pin);
         UserAccount user = found.orElse(null);
 
-        boolean ok = user != null && user.isActive();
+        boolean ok = user != null && user.isActive() && user.getRole() == UserRole.USER;
         if (!ok) {
             rateLimiter.recordFailure(nameKey, clientIp);
             if (user != null) {
