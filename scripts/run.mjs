@@ -11,7 +11,7 @@
  *   npm run test           -> backend test suite (JUnit 5)
  *
  * The dev backend uses the `demo-h2` Maven profile and the `dev-h2` Spring
- * profile: an in-memory database with a seeded admin account (admin / AdminPass123),
+ * profile: an in-memory database with a seeded admin account (admin / Admin@12345),
  * so no MySQL setup is needed to try the app. Production runs use MySQL — see
  * README.md.
  */

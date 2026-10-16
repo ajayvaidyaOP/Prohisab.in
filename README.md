@@ -111,7 +111,7 @@ cd backend
 cd ../frontend && npm run dev
 ```
 
-Sign in at http://localhost:5173 as `admin` / `AdminPass123` (demo) or the admin
+Sign in at http://localhost:5173 as `admin` / `Admin@12345` (demo) or the admin
 printed in the backend log on first production start — **change it immediately**.
 
 ### Useful root scripts
