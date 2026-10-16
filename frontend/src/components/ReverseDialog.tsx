@@ -84,7 +84,7 @@ export function ReverseDialog({ entry, accountId, open, onClose }: { entry: Reve
           )}
         </Field>
         <Field label="Reversal date" hint={`Defaults to today (${formatDate(today)}). It cannot be earlier than the original entry.`}>
-          {(id) => <TextInput id={id} type="date" value={date || today} min={minDate} max={today} onChange={(e) => setDate(e.target.value)} />}
+          {(id) => <TextInput id={id} type="date" value={date || today} min={minDate} max={today} disabled />}
         </Field>
         <p className="text-xs text-slate-500">Earliest allowed date: {formatDate(minDate)}.</p>
       </form>

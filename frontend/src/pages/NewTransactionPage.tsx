@@ -261,7 +261,7 @@ export default function NewTransactionPage() {
               </div>
               <Field label="Date" required error={fieldError('entryDate')} hint={`Today is ${formatDate(today)}. Future dates are not allowed.`}>
                 {(id, describedBy) => (
-                  <TextInput id={id} type="date" value={values.entryDate} max={today || undefined} onChange={(e) => set('entryDate', e.target.value)} invalid={!!fieldError('entryDate')} aria-describedby={describedBy} />
+                  <TextInput id={id} type="date" value={values.entryDate} max={today || undefined} disabled invalid={!!fieldError('entryDate')} aria-describedby={describedBy} />
                 )}
               </Field>
               <Field label={`Amount (${symbol})`} required error={fieldError('amount')} hint="Positive, up to 2 decimals. Commas are fine.">

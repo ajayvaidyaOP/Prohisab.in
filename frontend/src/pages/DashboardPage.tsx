@@ -33,7 +33,7 @@ export default function DashboardPage() {
   const [filterInitialized, setFilterInitialized] = useState(false);
 
   useEffect(() => {
-    if (!settings.data?.today || filterInitialized) return;
+    if (!settings.data?.today) return;
     setPdfFrom(settings.data.today);
     setPdfTo(settings.data.today);
     setAppliedFilters({ from: settings.data.today, to: settings.data.today });
@@ -61,7 +61,7 @@ export default function DashboardPage() {
   const [settleTarget, setSettleTarget] = useState<DashboardUserOverview | null>(null);
   const [settleKind, setSettleKind] = useState<'WITHDRAWAL' | 'DEPOSIT'>('WITHDRAWAL');
   const [settleAmount, setSettleAmount] = useState('');
-  const [settleDate, setSettleDate] = useState(new Date().toISOString().slice(0, 10));
+  const [settleDate, setSettleDate] = useState(() => data?.today ?? new Date().toISOString().slice(0, 10));
   const [settleMethod, setSettleMethod] = useState<PaymentMethod>('UPI');
   const [settleNotes, setSettleNotes] = useState('');
   const [settleRef, setSettleRef] = useState('');
@@ -330,6 +330,10 @@ export default function DashboardPage() {
     todayAdminPaid: data.todayPayments.paid,
     todayAdminPaidCount: data.todayPayments.paidCount,
   };
+
+  // Photo-like limited view: today's total entries
+  const todayEntriesCount = data?.counts?.ledgerEntries ?? 0;
+  const todayNetBalance = totals.totalPending ?? 0;
   const usersList = data.usersOverview ?? [];
   const pendingEntries = data.pendingEntries ?? [];
   const thisMonthInfo = getMonthRange(data.today, 0);
@@ -342,20 +346,38 @@ export default function DashboardPage() {
         description={`Today is ${formatDate(data.today)} · Manage user selection options, approve Deposits/Withdrawals & download PDFs`}
       />
 
+      {/* Photo-like limited view: Today's summary }}
+      <Card className="bg-slate-50 p-4 mb-4">
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <div className="text-xs text-slate-500">Total Entries Today</div>
+            <div className="text-2xl font-mono text-slate-900">{todayEntriesCount}</div>
+          </div>
+          <div>
+            <div className="text-xs text-slate-500">Net Balance</div>
+            <div className="text-2xl font-mono text-indigo-600">{formatAmount(todayNetBalance, symbol)}</div>
+          </div>
+          <div>
+            <div className="text-xs text-slate-500">Deposits</div>
+            <div className="text-2xl font-mono text-emerald-600">{formatAmount(totals.todayUserPaid, symbol)}</div>
+          </div>
+        </div>
+      </Card>
+
       {flashMessage ? <Alert tone="success">{flashMessage}</Alert> : null}
       {errorMessage ? <Alert tone="error">{errorMessage}</Alert> : null}
 
       <Card>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Field label="From Date">
-            {(id) => <TextInput id={id} type="date" value={pdfFrom} max={pdfTo || undefined} onChange={(e) => setPdfFrom(e.target.value)} />}
+            {(id) => <TextInput id={id} type="date" value={pdfFrom} max={pdfTo || undefined} disabled />}
           </Field>
           <Field label="To Date">
-            {(id) => <TextInput id={id} type="date" value={pdfTo} min={pdfFrom || undefined} onChange={(e) => setPdfTo(e.target.value)} />}
+            {(id) => <TextInput id={id} type="date" value={pdfTo} min={pdfFrom || undefined} disabled />}
           </Field>
           <Field label="Book">
             {(id) => (
-              <SelectInput id={id} value={pdfBookId} onChange={(e) => setPdfBookId(e.target.value)}>
+              <SelectInput id={id} value={pdfBookId} disabled>
                 <option value="">All books</option>
                 {(booksQuery.data ?? []).map((book) => (
                   <option key={book.id} value={book.id}>{book.name}{book.status === 'ARCHIVED' ? ' (Archived)' : ''}</option>
@@ -769,10 +791,7 @@ export default function DashboardPage() {
                   type="date"
                   max={data.today}
                   value={settleDate}
-                  onChange={(e) => {
-                    setSettleDate(e.target.value);
-                    setIdempotencyKey(newIdempotencyKey());
-                  }}
+                  disabled
                 />
               )}
             </Field>

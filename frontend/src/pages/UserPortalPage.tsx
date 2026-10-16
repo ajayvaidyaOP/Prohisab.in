@@ -402,11 +402,7 @@ export default function UserPortalPage() {
                 type="date"
                 max={today}
                 value={entryDate}
-                onChange={(e) => {
-                  setEntryDate(e.target.value);
-                  setIdempotencyKey(newIdempotencyKey());
-                }}
-              />
+                disabled />
             )}
           </Field>
 

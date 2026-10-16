@@ -396,7 +396,8 @@ export default function AccountDetailPage() {
                   type="date"
                   max={today}
                   value={quickDate}
-                  onChange={(e) => {
+                  disabled
+                />
                     setQuickDate(e.target.value);
                     setIdempotencyKey(newIdempotencyKey());
                   }}
@@ -565,7 +566,7 @@ export default function AccountDetailPage() {
                   setFrom(e.target.value);
                   setPage(1);
                 }}
-              />
+                disabled
             )}
           </Field>
           <Field label="To date">
@@ -578,7 +579,7 @@ export default function AccountDetailPage() {
                   setTo(e.target.value);
                   setPage(1);
                 }}
-              />
+                disabled
             )}
           </Field>
           <Field label="Search option or remark">
