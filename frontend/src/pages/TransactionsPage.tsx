@@ -112,8 +112,8 @@ export default function TransactionsPage() {
               </SelectInput>
             )}
           </Field>
-          <Field label="From">{(id) => <TextInput id={id} type="date" value={from} max={to || undefined} onChange={(e) => update({ from: e.target.value })} />}</Field>
-          <Field label="To">{(id) => <TextInput id={id} type="date" value={to} min={from || undefined} onChange={(e) => update({ to: e.target.value })} />}</Field>
+          <Field label="From">{(id) => <TextInput id={id} type="date" value={from} max={to || undefined} disabled />}</Field>
+          <Field label="To">{(id) => <TextInput id={id} type="date" value={to} min={from || undefined} disabled />}</Field>
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <label className="inline-flex items-center gap-2 text-sm text-slate-700">

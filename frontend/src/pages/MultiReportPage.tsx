@@ -66,10 +66,10 @@ export default function MultiReportPage() {
       <Card className="print:hidden">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="From date">
-            {(id) => <TextInput id={id} type="date" value={from} onChange={(event) => setFrom(event.target.value)} />}
+            {(id) => <TextInput id={id} type="date" value={from} onChange={(event) => setFrom(event.target.value)} disabled />}
           </Field>
           <Field label="To date">
-            {(id) => <TextInput id={id} type="date" value={to} onChange={(event) => setTo(event.target.value)} />}
+            {(id) => <TextInput id={id} type="date" value={to} onChange={(event) => setTo(event.target.value)} disabled />}
           </Field>
           <Field label="Book">
             {(id) => (
