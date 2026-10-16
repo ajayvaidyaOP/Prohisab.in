@@ -1,3 +1,6 @@
 .env
 .env.*
 !.env.example
+
+.erp-local-db/
+dist/

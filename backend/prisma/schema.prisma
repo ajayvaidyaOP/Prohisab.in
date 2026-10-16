@@ -1,0 +1,173 @@
+// Prisma maps onto the existing Spring/Flyway MySQL tables. Do not rename or drop
+// these tables: deployments upgrading from Spring Boot keep their users and ledgers.
+// Money is MySQL DECIMAL(15,2); IDs are BIGINT and converted to safe JS numbers at the API boundary.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model User {
+  id                  BigInt        @id @default(autoincrement()) @db.BigInt
+  name                String        @db.VarChar(150)
+  nameNormalized      String        @unique(map: "users_name_normalized_uq") @map("name_normalized") @db.VarChar(150)
+  passwordHash        String        @map("password_hash") @db.VarChar(255)
+  role                String        @default("USER") @db.VarChar(10)
+  accountCode         String        @unique(map: "users_account_code_uq") @map("account_code") @db.VarChar(20)
+  phone               String?       @db.VarChar(30)
+  email               String?       @db.VarChar(190)
+  address             String?       @db.VarChar(500)
+  notes               String?       @db.VarChar(500)
+  isActive            Boolean       @default(true) @map("is_active")
+  pin                 String?       @unique(map: "users_pin_uq") @db.VarChar(10) // legacy Spring PINs only; never set for new PINs
+  pinDigest           String?       @unique(map: "users_pin_digest_uq") @map("pin_digest") @db.VarChar(64)
+  pinHash             String?       @map("pin_hash") @db.VarChar(255)
+  backDateEntry       Boolean       @default(false) @map("back_date_entry")
+  backDateAllowedDate DateTime?     @map("back_date_allowed_date") @db.Date
+  createdAt           DateTime      @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt           DateTime      @updatedAt @map("updated_at") @db.DateTime(0)
+  sessions            Session[]
+  books               UserBook[]
+  transactions        Transaction[] @relation("AccountEntries")
+  createdEntries      Transaction[] @relation("CreatedEntries")
+  reviewedEntries     Transaction[] @relation("ReviewedEntries")
+  auditLogs           AuditLog[]
+
+  @@index([role, isActive], map: "users_role_active_idx")
+  @@index([name], map: "users_name_idx")
+  @@map("users")
+}
+
+model Session {
+  id         String   @id @db.VarChar(64) // SHA-256 of the raw cookie token
+  userId     BigInt   @map("user_id") @db.BigInt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade, map: "sessions_user_fk")
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.DateTime(0)
+  expiresAt  DateTime @map("expires_at") @db.DateTime(0)
+  userAgent  String?  @map("user_agent") @db.VarChar(255)
+
+  @@index([userId], map: "sessions_user_idx")
+  @@index([expiresAt], map: "sessions_expires_idx")
+  @@map("sessions")
+}
+
+model Book {
+  id           BigInt        @id @default(autoincrement()) @db.BigInt
+  name         String        @db.VarChar(150)
+  status       String        @default("ACTIVE") @db.VarChar(20)
+  createdAt    DateTime      @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt    DateTime      @updatedAt @map("updated_at") @db.DateTime(0)
+  members      UserBook[]
+  transactions Transaction[]
+
+  @@index([status], map: "books_status_idx")
+  @@map("books")
+}
+
+model UserBook {
+  userId BigInt @map("user_id") @db.BigInt
+  bookId BigInt @map("book_id") @db.BigInt
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade, map: "fk_ub_user")
+  book   Book   @relation(fields: [bookId], references: [id], onDelete: Cascade, map: "fk_ub_book")
+
+  @@id([userId, bookId])
+  @@map("user_books")
+}
+
+model EntryOption {
+  id             BigInt    @id @default(autoincrement()) @db.BigInt
+  name           String    @db.VarChar(120)
+  nameNormalized String    @unique(map: "entry_options_name_uq") @map("name_normalized") @db.VarChar(120)
+  sortOrder      Int       @default(0) @map("sort_order")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(0)
+
+  @@index([isActive, sortOrder, id], map: "entry_options_active_sort_idx")
+  @@map("entry_options")
+}
+
+model Transaction {
+  id              BigInt    @id @default(autoincrement()) @db.BigInt
+  userId          BigInt    @map("user_id") @db.BigInt
+  user            User      @relation("AccountEntries", fields: [userId], references: [id], onDelete: Restrict, map: "transactions_user_fk")
+  entryDate       DateTime  @map("entry_date") @db.Date
+  kind            String    @db.VarChar(12) // DEPOSIT or WITHDRAWAL; reversal is a link, not a third kind
+  amount          Decimal   @db.Decimal(15, 2)
+  optionName      String    @map("option_name") @db.VarChar(120)
+  detail          String?   @db.VarChar(500)
+  referenceNumber String?   @map("reference_number") @db.VarChar(100)
+  paymentMethod   String?   @map("payment_method") @db.VarChar(20)
+  reversalOfId    BigInt?   @unique(map: "uq_transactions_reversal_of") @map("reversal_of_id") @db.BigInt
+  reversedById    BigInt?   @map("reversed_by_id") @db.BigInt
+  approvalStatus  String    @default("PENDING") @map("approval_status") @db.VarChar(10)
+  reviewedById    BigInt?   @map("reviewed_by_id") @db.BigInt
+  reviewedBy      User?     @relation("ReviewedEntries", fields: [reviewedById], references: [id], onDelete: SetNull, map: "transactions_reviewed_by_fk")
+  reviewedAt      DateTime? @map("reviewed_at") @db.DateTime(0)
+  rejectionReason String?   @map("rejection_reason") @db.VarChar(300)
+  createdById     BigInt?   @map("created_by_id") @db.BigInt
+  createdBy       User?     @relation("CreatedEntries", fields: [createdById], references: [id], onDelete: Restrict, map: "transactions_created_by_fk")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.DateTime(0)
+  bookId          BigInt?   @map("book_id") @db.BigInt
+  book            Book?     @relation(fields: [bookId], references: [id], map: "fk_lt_book")
+  customerId      String?   @map("customer_id") @db.VarChar(60)
+  bankDetails     String?   @map("bank_details") @db.VarChar(255)
+
+  @@index([userId, entryDate, id], map: "transactions_user_date_idx")
+  @@index([approvalStatus, createdAt], map: "transactions_status_created_idx")
+  @@index([kind, entryDate], map: "transactions_kind_date_idx")
+  @@index([entryDate], map: "transactions_date_idx")
+  @@index([createdById], map: "transactions_created_by_idx")
+  @@index([bookId], map: "transactions_book_idx")
+  @@map("transactions")
+}
+
+model AuditLog {
+  id         BigInt    @id @default(autoincrement()) @db.BigInt
+  action     String    @db.VarChar(80)
+  entityType String    @map("entity_type") @db.VarChar(60)
+  entityId   String    @map("entity_id") @db.VarChar(60)
+  actorId    BigInt?   @map("actor_id") @db.BigInt
+  actor      User?     @relation(fields: [actorId], references: [id], onDelete: SetNull, map: "audit_logs_actor_fk")
+  details    String?   @db.VarChar(2000)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.DateTime(0)
+
+  @@index([entityType, entityId], map: "audit_logs_entity_idx")
+  @@index([createdAt], map: "audit_logs_created_idx")
+  @@index([actorId], map: "audit_logs_actor_idx")
+  @@map("audit_logs")
+}
+
+model AppSetting {
+  id              BigInt   @id @db.BigInt
+  businessName    String   @default("My Business") @map("business_name") @db.VarChar(150)
+  businessAddress String?  @map("business_address") @db.VarChar(500)
+  businessPhone   String?  @map("business_phone") @db.VarChar(30)
+  businessEmail   String?  @map("business_email") @db.VarChar(190)
+  currencySymbol  String   @default("₹") @map("currency_symbol") @db.VarChar(8)
+  timezone        String   @default("Asia/Kolkata") @db.VarChar(64)
+  logoUrl         String?  @map("logo_url") @db.VarChar(500)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+
+  @@map("app_settings")
+}
+
+// New additive table. Idempotency is per actor + endpoint and expires after 24 hours.
+model IdempotencyKey {
+  id             BigInt   @id @default(autoincrement()) @db.BigInt
+  scope          String   @db.VarChar(160)
+  keyHash        String   @map("key_hash") @db.VarChar(64)
+  requestHash    String   @map("request_hash") @db.VarChar(64)
+  responseStatus Int?     @map("response_status")
+  responseBody   Json?    @map("response_body")
+  createdAt      DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  expiresAt      DateTime @map("expires_at") @db.DateTime(0)
+
+  @@unique([scope, keyHash], map: "idempotency_keys_scope_key_uq")
+  @@index([expiresAt], map: "idempotency_keys_expires_idx")
+  @@map("idempotency_keys")
+}

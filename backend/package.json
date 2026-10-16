@@ -1,0 +1,49 @@
+{
+  "name": "deposit-in-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "deposit.in API — Express + Prisma on the existing MySQL ledger schema",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "postinstall": "node scripts/generate.mjs",
+    "dev": "tsx watch src/server.ts",
+    "build": "node scripts/generate.mjs && tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prisma:generate": "node scripts/generate.mjs",
+    "migrate:deploy": "tsx src/scripts/migrate.ts",
+    "db:setup": "tsx src/scripts/db-setup.ts",
+    "seed": "tsx src/scripts/seed.ts",
+    "test": "node scripts/test.mjs",
+    "test:unit": "node scripts/test.mjs",
+    "db:import-legacy": "tsx src/scripts/import-legacy.ts"
+  },
+  "dependencies": {
+    "@node-rs/argon2": "^2.2.2",
+    "@prisma/adapter-mariadb": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "bcryptjs": "^3.0.2",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^17.4.2",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.1",
+    "helmet": "^8.3.0",
+    "mariadb": "^3.5.4",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@prisma/driver-adapter-utils": "^7.10.1",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.20.5",
+    "@types/supertest": "^7.2.1",
+    "lite4mariadb": "^0.1.2",
+    "prisma": "^7.10.0",
+    "supertest": "^7.3.1",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3"
+  }
+}

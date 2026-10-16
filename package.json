@@ -2,19 +2,21 @@
   "name": "deposit-in",
   "version": "1.0.0",
   "private": true,
-  "description": "deposit.in — deposit/withdrawal ERP ledger (Spring Boot + React). Root scripts orchestrate both apps.",
+  "description": "deposit.in — React/Vite + Express/Prisma (MySQL) deposit/withdrawal ledger",
   "type": "module",
-  "engines": {
-    "node": ">=20.19.0"
-  },
+  "engines": { "node": ">=20.19.0" },
   "scripts": {
     "setup": "node scripts/run.mjs setup",
     "dev": "node scripts/run.mjs dev",
     "dev:backend": "node scripts/run.mjs dev:backend",
-    "dev:frontend": "node scripts/run.mjs dev:frontend",
-    "build": "node scripts/run.mjs build",
-    "start": "node scripts/run.mjs start",
-    "test": "node scripts/run.mjs test",
-    "typecheck": "npm --prefix frontend run build"
+    "dev:frontend": "npm --prefix frontend run dev",
+    "db:setup": "npm --prefix backend run db:setup",
+    "db:import-legacy": "npm --prefix backend run db:import-legacy --",
+    "migrate:deploy": "npm --prefix backend run migrate:deploy",
+    "seed": "npm --prefix backend run seed",
+    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "start": "npm --prefix backend run start",
+    "test": "npm --prefix backend run test && npm --prefix frontend run typecheck",
+    "typecheck": "npm --prefix backend run typecheck && npm --prefix frontend run typecheck"
   }
 }

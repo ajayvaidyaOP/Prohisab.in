@@ -84,7 +84,7 @@ async function request<T>(method: string, path: string, options: RequestOptions 
     throw new ApiError(0, 'NETWORK', 'We could not reach the server. Check your connection and try again.');
   }
 
-  if (response.status === 401 && path !== '/auth/login' && path !== '/auth/me') {
+  if (response.status === 401 && !['/auth/login', '/auth/pin-login', '/auth/me'].includes(path)) {
     window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
   }
 
