@@ -50,12 +50,27 @@ export function SessionWatcher() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   useEffect(() => {
+    let mounted = true;
+    let checking = false;
     const onExpired = () => {
-      qc.clear();
-      navigate('/login', { replace: true, state: { reason: 'expired' } });
+      if (checking) return;
+      checking = true;
+      // A request started before a successful login can finish with a stale
+      // 401 afterwards. Only log out if the CURRENT cookie really has expired.
+      void api.auth.me().then(({ user }) => {
+        if (mounted) qc.setQueryData(ME_KEY, user);
+      }).catch((error: unknown) => {
+        if (mounted && error instanceof ApiError && error.status === 401) {
+          qc.clear();
+          navigate('/login', { replace: true, state: { reason: 'expired' } });
+        }
+      }).finally(() => { checking = false; });
     };
     window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
-    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => {
+      mounted = false;
+      window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    };
   }, [qc, navigate]);
   return null;
 }

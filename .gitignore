@@ -28,4 +28,5 @@ mysql-data/
 .erp-local-db.json
 backend/.erp-local-db.json
 
-
+# Persistent local WASM demo database (not production data)
+backend/.erp-local-db/

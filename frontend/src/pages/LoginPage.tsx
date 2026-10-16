@@ -19,8 +19,23 @@ export default function LoginPage() {
   const from = (location.state as { from?: string } | null)?.from ?? '/';
   const expired = (location.state as { reason?: string } | null)?.reason === 'expired';
 
+  // A 200 login is not enough inside an embedded preview: some browsers discard
+  // third-party cookies. Confirm the cookie works before entering protected pages.
+  const signInAndConfirm = async (signIn: () => Promise<unknown>) => {
+    await signIn();
+    try {
+      return await api.auth.me();
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        throw new ApiError(401, 'SESSION_COOKIE_BLOCKED',
+          'Login succeeded, but your browser did not save the session cookie. Open the preview in a new tab and sign in again, or allow third-party cookies.');
+      }
+      throw error;
+    }
+  };
+
   const login = useMutation({
-    mutationFn: () => api.auth.login(username.trim(), password),
+    mutationFn: () => signInAndConfirm(() => api.auth.login(username.trim(), password)),
     onSuccess: (data) => {
       qc.setQueryData(ME_KEY, data.user);
       navigate(from.startsWith('/') ? from : '/', { replace: true });
@@ -29,7 +44,7 @@ export default function LoginPage() {
   });
 
   const pinLogin = useMutation({
-    mutationFn: () => api.auth.pinLogin(pin.trim()),
+    mutationFn: () => signInAndConfirm(() => api.auth.pinLogin(pin.trim())),
     onSuccess: (data) => {
       qc.setQueryData(ME_KEY, data.user);
       navigate(from.startsWith('/') ? from : '/', { replace: true });
@@ -88,6 +103,12 @@ export default function LoginPage() {
 
           {expired && <Alert tone="warning">Your session ended. Please sign in again.</Alert>}
           {error && <Alert tone="error">{error.message}</Alert>}
+          {error?.code === 'SESSION_COOKIE_BLOCKED' && (
+            <a href={window.location.href} target="_blank" rel="noopener noreferrer"
+              className="mb-4 inline-block text-sm font-medium text-indigo-700 underline">
+              Open website in a new tab
+            </a>
+          )}
 
           {mode === 'admin' ? (
             <form className="space-y-5" onSubmit={submitAdmin} noValidate>
