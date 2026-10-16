@@ -10,6 +10,12 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import com.depositin.erp.entity.Book;
+import jakarta.persistence.ManyToMany;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.JoinColumn;
+import java.util.HashSet;
+import java.util.Set;
 
 import java.time.Instant;
 
@@ -35,6 +41,10 @@ public class UserAccount {
     @Column(name = "password_hash", nullable = false, length = 255)
     private String passwordHash;
 
+    /** Optional 4-digit staff PIN used for quick staff login. */
+    @Column(name = "pin", length = 10, unique = true)
+    private String pin;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "role", nullable = false, length = 10)
     private UserRole role = UserRole.USER;
@@ -56,6 +66,15 @@ public class UserAccount {
 
     @Column(name = "is_active", nullable = false)
     private boolean active = true;
+
+    @Column(name = "back_date_entry", nullable = false)
+    private boolean backDateEntry = false;
+
+    @ManyToMany
+    @JoinTable(name = "user_books",
+            joinColumns = @JoinColumn(name = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "book_id"))
+    private Set<Book> allowedBooks = new HashSet<>();
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -117,6 +136,14 @@ public class UserAccount {
         this.passwordHash = passwordHash;
     }
 
+    public String getPin() {
+        return pin;
+    }
+
+    public void setPin(String pin) {
+        this.pin = pin;
+    }
+
     public UserRole getRole() {
         return role;
     }
@@ -171,6 +198,22 @@ public class UserAccount {
 
     public void setActive(boolean active) {
         this.active = active;
+    }
+
+    public boolean isBackDateEntry() {
+        return backDateEntry;
+    }
+
+    public void setBackDateEntry(boolean backDateEntry) {
+        this.backDateEntry = backDateEntry;
+    }
+
+    public Set<Book> getAllowedBooks() {
+        return allowedBooks;
+    }
+
+    public void setAllowedBooks(Set<Book> allowedBooks) {
+        this.allowedBooks = allowedBooks;
     }
 
     public Instant getCreatedAt() {

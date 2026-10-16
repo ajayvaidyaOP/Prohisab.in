@@ -61,6 +61,7 @@ public class SettingsService {
         row.setBusinessEmail(emptyToNull(request.businessEmail()));
         row.setCurrencySymbol(request.currencySymbol().trim());
         row.setTimezone(request.timezone().trim());
+        row.setLogoUrl(emptyToNull(request.logoUrl()));
         settings.save(row);
         audit.record("SETTINGS_UPDATED", "AppSetting", 1L, actor, Map.of(
                 "businessName", Map.of("from", before.getBusinessName(), "to", row.getBusinessName()),
@@ -76,6 +77,7 @@ public class SettingsService {
                 row.getBusinessEmail(),
                 row.getCurrencySymbol(),
                 row.getTimezone(),
+                row.getLogoUrl(),
                 entryOptions.activeNames(),
                 row.getUpdatedAt() == null ? null : DateTimeFormatter.ISO_INSTANT.format(row.getUpdatedAt()));
     }

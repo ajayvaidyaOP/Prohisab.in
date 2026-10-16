@@ -14,6 +14,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -68,6 +69,47 @@ public class AuthService {
         String token = sessions.createSession(user, userAgent);
         audit.record("AUTH_LOGIN", "User", user.getId(), user, Map.of("role", user.getRole().name()));
         return new LoginResult(token, toAuthUser(user));
+    }
+
+    @Transactional
+    public LoginResult loginByPin(CommonDtos.PinLoginRequest request, String clientIp, String userAgent) {
+        String pin = request.pin().trim();
+        String nameKey = "pin:" + pin;
+        rateLimiter.checkAllowed(nameKey, clientIp);
+
+        Optional<UserAccount> found = users.findByPin(pin);
+        UserAccount user = found.orElse(null);
+
+        boolean ok = user != null && user.isActive();
+        if (!ok) {
+            rateLimiter.recordFailure(nameKey, clientIp);
+            if (user != null) {
+                audit.record("AUTH_LOGIN_FAILED", "User", user.getId(), user, Map.of("reason", "bad_pin"));
+            }
+            throw ApiException.unauthorized("Invalid PIN.");
+        }
+
+        rateLimiter.recordSuccess(nameKey, clientIp);
+        String token = sessions.createSession(user, userAgent);
+        audit.record("AUTH_LOGIN", "User", user.getId(), user, Map.of("role", user.getRole().name(), "method", "pin"));
+        return new LoginResult(token, toAuthUser(user));
+    }
+
+    @Transactional
+    public void changePassword(Long userId, CommonDtos.ChangePasswordRequest request) {
+        UserAccount user = users.findById(userId).orElseThrow(() -> ApiException.unauthorized("You must be signed in."));
+        if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+            throw ApiException.unauthorized("Current password is incorrect.");
+        }
+        if (!request.newPassword().equals(request.confirmPassword())) {
+            throw ApiException.validation("Passwords do not match.", List.of(new ApiException.FieldError("confirmPassword", "Passwords do not match.")));
+        }
+        if (request.newPassword().length() < 6) {
+            throw ApiException.validation("Password too weak.", List.of(new ApiException.FieldError("newPassword", "Use at least 6 characters.")));
+        }
+        user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
+        users.save(user);
+        audit.record("ADMIN_PASSWORD_CHANGED", "User", user.getId(), user, Map.of());
     }
 
     @Transactional

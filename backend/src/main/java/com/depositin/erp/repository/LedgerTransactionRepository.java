@@ -128,6 +128,19 @@ public interface LedgerTransactionRepository extends JpaRepository<LedgerTransac
     @Query("""
             select t from LedgerTransaction t
             left join fetch t.reviewedBy r
+            left join fetch t.book b
+            where (:userIds is null or t.user.id in :userIds)
+              and (:fromDate is null or t.entryDate >= :fromDate)
+              and (:toDate is null or t.entryDate <= :toDate)
+            order by t.entryDate desc, t.id desc
+            """)
+    List<LedgerTransaction> multiReport(@Param("userIds") List<Long> userIds,
+                                        @Param("fromDate") LocalDate fromDate,
+                                        @Param("toDate") LocalDate toDate);
+
+    @Query("""
+            select t from LedgerTransaction t
+            left join fetch t.reviewedBy r
             where t.approvalStatus = com.depositin.erp.entity.ApprovalStatus.PENDING
             order by t.createdAt asc, t.id asc
             """)

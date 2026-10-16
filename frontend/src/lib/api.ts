@@ -149,6 +149,10 @@ export const api = {
   auth: {
     login: (username: string, password: string) =>
       post<{ user: AuthUser }>('/auth/login', { username, password }),
+    pinLogin: (pin: string) =>
+      post<{ user: AuthUser }>('/auth/pin-login', { pin }),
+    changePassword: (body: { currentPassword: string; newPassword: string; confirmPassword: string }) =>
+      post<void>('/auth/change-password', body),
     logout: () => post<void>('/auth/logout'),
     me: () => get<{ user: AuthUser }>('/auth/me'),
   },
@@ -160,6 +164,7 @@ export const api = {
     create: (body: unknown, idempotencyKey: string) => post<{ account: AccountSummary; replayed: boolean }>('/accounts', body, idempotencyKey),
     update: (id: number, body: unknown) => patch<{ account: AccountSummary }>(`/accounts/${id}`, body),
     setStatus: (id: number, isActive: boolean) => patch<{ account: AccountSummary }>(`/accounts/${id}/status`, { isActive }),
+    setBackDate: (id: number, allowed: boolean) => patch<{ account: AccountSummary }>(`/accounts/${id}/back-date`, { allowed }),
     resetPassword: (id: number, body: { newPassword: string; confirmPassword: string }) =>
       post<void>(`/accounts/${id}/reset-password`, body),
   },
@@ -195,12 +200,12 @@ export const api = {
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
     },
-    downloadAllUsersSummaryPdf: async () => {
+    downloadAllUsersSummaryPdf: async (params: { from?: string; to?: string } = {}) => {
       const headers: Record<string, string> = {
         Accept: 'application/pdf',
         'X-Requested-With': 'XMLHttpRequest',
       };
-      const response = await fetch(buildUrl('/dashboard/summary.pdf'), {
+      const response = await fetch(buildUrl('/dashboard/summary.pdf', params), {
         method: 'GET',
         headers,
         credentials: API_BASE_URL ? 'include' : 'same-origin',
@@ -219,6 +224,12 @@ export const api = {
       setTimeout(() => URL.revokeObjectURL(url), 5000);
     },
   },
+  books: {
+    list: () => get<{ id: number; name: string; status: string }[]>('/books'),
+    create: (name: string) => post<{ id: number; name: string; status: string }>('/books', { name }),
+    archive: (id: number) => post<{ id: number; name: string; status: string }>(`/books/${id}/archive`, {}),
+    restore: (id: number) => post<{ id: number; name: string; status: string }>(`/books/${id}/restore`, {}),
+  },
   transactions: {
     list: (params: {
       search?: string;
@@ -235,6 +246,8 @@ export const api = {
         ...params,
         includeReversals: params.includeReversals === false ? 'false' : undefined,
       }),
+    multiReport: (userIds: number[] | null, from?: string, to?: string) =>
+      get<unknown[]>(`/transactions/multi-report`, { userIds: userIds ? userIds.join(',') : undefined, from, to }),
     create: (body: Record<string, unknown>, idempotencyKey: string) =>
       post<{ transaction: Transaction; account: AccountSummary; replayed: boolean }>(
         '/transactions',

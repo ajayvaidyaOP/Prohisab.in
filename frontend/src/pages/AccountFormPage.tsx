@@ -10,12 +10,14 @@ interface FormState {
   name: string;
   password: string;
   confirmPassword: string;
+  pin: string;
 }
 
 const EMPTY: FormState = {
   name: '',
   password: '',
   confirmPassword: '',
+  pin: '',
 };
 
 const PASSWORD_HINT = 'At least 6 characters, with letters and numbers.';
@@ -42,6 +44,8 @@ export default function AccountFormPage() {
   const [showPassword, setShowPassword] = useState(true);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState | 'form' | 'resetForm' | 'resetDone', string>>>({});
   const [loadedId, setLoadedId] = useState<number | null>(null);
+  const [backDateAllowed, setBackDateAllowed] = useState(false);
+  const [backDateSaving, setBackDateSaving] = useState(false);
 
   useEffect(() => {
     if (!existing.data || loadedId === existing.data.account.id) return;
@@ -50,6 +54,7 @@ export default function AccountFormPage() {
       name: a.name,
       password: '',
       confirmPassword: '',
+      pin: '',
     });
     setLoadedId(a.id);
   }, [existing.data, loadedId]);
@@ -149,6 +154,7 @@ export default function AccountFormPage() {
       save.mutate({
         name: cleanName,
         password: form.password,
+        pin: form.pin.trim() || undefined,
       });
     }
   };
@@ -223,6 +229,24 @@ export default function AccountFormPage() {
           </Field>
           )}
 
+          {!editing && (
+            <Field label="Staff PIN (4-digit, optional)" hint="Used for Staff PIN Login. Leave blank to disable PIN login.">
+              {(fid, describedBy) => (
+                <TextInput
+                  id={fid}
+                  type="password"
+                  inputMode="numeric"
+                  placeholder="e.g. 1234"
+                  value={form.pin}
+                  onChange={(e) => set('pin', e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  maxLength={10}
+                  aria-describedby={describedBy}
+                  autoComplete="new-password"
+                />
+              )}
+            </Field>
+          )}
+
           <div className="flex flex-col-reverse gap-2 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
             <ButtonLink to="/accounts">Cancel</ButtonLink>
             <Button type="submit" loading={save.isPending}>
@@ -231,6 +255,36 @@ export default function AccountFormPage() {
           </div>
         </form>
       </Card>
+
+      {editing && (
+        <Card>
+          <div className="mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
+            <UserPlus className="h-4 w-4 text-indigo-600" />
+            <h2 className="text-sm font-semibold text-slate-900">Back Date Entry Permission</h2>
+          </div>
+          <p className="mb-4 text-sm text-slate-600">Allow this user to submit entries for past dates.</p>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-slate-700">{backDateAllowed ? 'Allowed' : 'Not allowed'}</span>
+            <Button
+              variant="secondary"
+              loading={backDateSaving}
+              onClick={async () => {
+                setBackDateSaving(true);
+                try {
+                  await api.accounts.setBackDate(accountId, !backDateAllowed);
+                  setBackDateAllowed((v) => !v);
+                } catch (e) {
+                  alert(e instanceof Error ? e.message : 'Failed');
+                } finally {
+                  setBackDateSaving(false);
+                }
+              }}
+            >
+              {backDateAllowed ? 'Revoke' : 'Grant Back Date'}
+            </Button>
+          </div>
+        </Card>
+      )}
 
       {editing && (
         <Card>

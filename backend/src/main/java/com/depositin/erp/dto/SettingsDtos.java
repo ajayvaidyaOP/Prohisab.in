@@ -19,6 +19,7 @@ public final class SettingsDtos {
             String businessEmail,
             String currencySymbol,
             String timezone,
+            String logoUrl,
             List<String> userEntryOptions,
             String updatedAt) {
     }
@@ -45,7 +46,8 @@ public final class SettingsDtos {
             @Size(max = 30) String businessPhone,
             @Size(max = 190) String businessEmail,
             @NotBlank(message = "Currency symbol is required.") @Size(max = 8) String currencySymbol,
-            @NotBlank(message = "Timezone is required.") @Size(max = 64) String timezone) {
+            @NotBlank(message = "Timezone is required.") @Size(max = 64) String timezone,
+            @Size(max = 500) String logoUrl) {
     }
 
     public record EntryOptionView(Long id, String name, int sortOrder, boolean isActive, long usageCount) {

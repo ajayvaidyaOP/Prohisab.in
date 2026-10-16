@@ -3,6 +3,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowRightLeft,
+  BookOpen,
   BookUser,
   LayoutDashboard,
   LogOut,
@@ -23,6 +24,8 @@ const ADMIN_NAV = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/accounts', label: 'Users & Ledgers', icon: BookUser, end: false },
   { to: '/transactions', label: 'All Entries', icon: ArrowRightLeft, end: false },
+  { to: '/books', label: 'Books', icon: BookOpen, end: false },
+  { to: '/multi-report', label: 'Multi User Report', icon: ArrowRightLeft, end: false },
   { to: '/settings', label: 'Settings', icon: Settings, end: false },
 ];
 

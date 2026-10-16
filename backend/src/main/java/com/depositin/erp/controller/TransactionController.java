@@ -5,6 +5,7 @@ import com.depositin.erp.security.CurrentUser;
 import com.depositin.erp.security.SecurityUtils;
 import com.depositin.erp.service.TransactionService;
 import jakarta.validation.Valid;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -41,6 +42,15 @@ public class TransactionController {
             @RequestParam(defaultValue = "25") int pageSize) {
         SecurityUtils.requireAdmin();
         return transactions.list(approvalStatus, accountId, type, includeReversals, from, to, page, pageSize);
+    }
+
+    @GetMapping("/multi-report")
+    public List<TransactionDtos.TransactionView> multiReport(
+            @RequestParam(required = false) List<Long> userIds,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to) {
+        SecurityUtils.requireAdmin();
+        return transactions.multiReport(userIds, from, to);
     }
 
     @GetMapping("/{id}")

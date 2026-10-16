@@ -52,6 +52,9 @@ export default function UserPortalPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('UPI');
   const [selectedOption, setSelectedOption] = useState('');
   const [extraDetail, setExtraDetail] = useState('');
+  const [book, setBook] = useState('');
+  const [customerId, setCustomerId] = useState('');
+  const [bankDetails, setBankDetails] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState(() => newIdempotencyKey());
@@ -64,6 +67,8 @@ export default function UserPortalPage() {
     enabled: Boolean(accountId),
   });
 
+  const booksQuery = useQuery({ queryKey: ['books'], queryFn: () => api.books.list() });
+
   const addMoneyMutation = useMutation({
     mutationFn: () => {
       const acctType = ledgerQuery.data?.account.type ?? 'CUSTOMER';
@@ -75,12 +80,17 @@ export default function UserPortalPage() {
           : acctType === 'SUPPLIER'
             ? 'PAYMENT_MADE'
             : 'PAYMENT_RECEIVED';
-      const combinedNotes = extraDetail.trim()
-        ? `${effectiveOption} — ${extraDetail.trim()}`
-        : effectiveOption;
+      const selectedBook = (booksQuery.data ?? []).find((b: any) => b.name === book.trim());
+      const parts = [effectiveOption];
+      if (book.trim()) parts.push(`Book: ${book.trim()}`);
+      if (customerId.trim()) parts.push(`Customer: ${customerId.trim()}`);
+      if (bankDetails.trim()) parts.push(`Bank: ${bankDetails.trim()}`);
+      if (extraDetail.trim()) parts.push(extraDetail.trim());
+      const combinedNotes = parts.join(' — ');
       return api.transactions.create(
         {
           accountId: accountId!,
+          bookId: selectedBook ? selectedBook.id : undefined,
           type: txType,
           entryDate,
           amount,
@@ -100,6 +110,9 @@ export default function UserPortalPage() {
       );
       setAmount('');
       setExtraDetail('');
+      setBook('');
+      setCustomerId('');
+      setBankDetails('');
       setFormError(null);
       setIdempotencyKey(newIdempotencyKey());
     },
@@ -163,7 +176,7 @@ export default function UserPortalPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card className="border-l-4 border-l-emerald-600">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Total Deposit (+ Approved)
+            Total Deposit
           </div>
           <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-emerald-700">
             {formatAmount(account.totalUserPaid, symbol)}
@@ -175,7 +188,7 @@ export default function UserPortalPage() {
 
         <Card className="border-l-4 border-l-rose-600">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Total Withdrawal (- Approved)
+            Total Withdrawal
           </div>
           <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-rose-700">
             {formatAmount(account.totalAdminPaid, symbol)}
@@ -187,7 +200,7 @@ export default function UserPortalPage() {
 
         <Card className="border-l-4 border-l-indigo-600">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Net Balance (Deposit - Withdrawal)
+            Net (Deposit - Withdrawal)
           </div>
           <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-indigo-700">
             {formatAmount(account.pendingBalance, symbol)}
@@ -268,6 +281,45 @@ export default function UserPortalPage() {
         ) : null}
 
         <form onSubmit={onSubmit} className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <Field label="Book">
+            {(fid) => (
+              <SelectInput
+                id={fid}
+                value={book}
+                onChange={(e) => setBook(e.target.value)}
+              >
+                <option value="">Select book</option>
+                {(booksQuery.data ?? []).filter((b: any) => b.status === 'ACTIVE').map((b: any) => (
+                  <option key={b.id} value={b.name}>{b.name}</option>
+                ))}
+              </SelectInput>
+            )}
+          </Field>
+
+          <Field label="Customer / User ID">
+            {(fid) => (
+              <TextInput
+                id={fid}
+                placeholder="e.g. 1721"
+                value={customerId}
+                onChange={(e) => setCustomerId(e.target.value)}
+                maxLength={60}
+              />
+            )}
+          </Field>
+
+          <Field label="Bank account details">
+            {(fid) => (
+              <TextInput
+                id={fid}
+                placeholder="e.g. UPI / Bank details"
+                value={bankDetails}
+                onChange={(e) => setBankDetails(e.target.value)}
+                maxLength={120}
+              />
+            )}
+          </Field>
+
           <Field label="Select Option (Set by Admin)" required>
             {(fid) => (
               <SelectInput
