@@ -48,6 +48,7 @@ function renderApp(path = '/accounts') {
 }
 
 beforeEach(() => {
+  vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   mocks.role = 'ADMIN';
   mocks.dashboard.mockResolvedValue({ userLedgerTotals: { pendingSubmissionsCount: 2 } });
   mocks.logout.mockResolvedValue({});
@@ -57,7 +58,10 @@ beforeEach(() => {
   mocks.setBooks.mockResolvedValue({});
   mocks.get.mockResolvedValue({ account: { id: 2, name: 'Existing Staff', backDateAllowedDate: null } });
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe('one create-user flow', () => {
   it('redirects the old create URL to the Users form and focuses the name', async () => {
@@ -94,6 +98,29 @@ describe('one create-user flow', () => {
     expect(screen.getByRole('button', { name: 'Save Changes' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Reset password' })).toBeTruthy();
     expect(screen.queryByLabelText(/Staff PIN/)).toBeNull();
+  });
+});
+
+describe('header brand link', () => {
+  it('opens the dashboard when the business name in the header is clicked', async () => {
+    const user = userEvent.setup();
+    renderApp('/accounts');
+    await screen.findByRole('heading', { name: 'Create User' });
+    const home = screen.getByRole('link', { name: /go to dashboard/i });
+    expect(home.getAttribute('href')).toBe('/');
+    await user.click(home);
+    await screen.findByRole('heading', { name: 'Dashboard content' });
+    expect(screen.getByTestId('location').textContent).toBe('/');
+  });
+
+  it('takes staff back to their own portal from the header brand', async () => {
+    mocks.role = 'USER';
+    const user = userEvent.setup();
+    renderApp('/accounts');
+    await screen.findByRole('heading', { name: 'Staff portal' });
+    await user.click(screen.getByRole('link', { name: /go to dashboard/i }));
+    await screen.findByRole('heading', { name: 'Staff portal' });
+    expect(screen.getByTestId('location').textContent).toBe('/');
   });
 });
 

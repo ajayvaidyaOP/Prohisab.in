@@ -7,6 +7,7 @@ import { audit } from '../lib/audit.ts';
 import { AppError, errors } from '../lib/errors.ts';
 import { burnPasswordCheck, hashPassword, hashPin, pinDigest, validPassword, verifyPassword, verifyPin } from '../lib/password.ts';
 import { generateSessionToken, sha256Hex } from '../lib/security.ts';
+import { FailureWindow } from '../lib/throttle.ts';
 import { normalizeName, parse } from '../lib/validation.ts';
 import { actor, authUser, requireAuth, SESSION_COOKIE, type Actor } from '../middleware/auth.ts';
 
@@ -14,13 +15,16 @@ export const authRouter = Router();
 authRouter.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 const MAX_AGE_MS = env.SESSION_MAX_HOURS * 3_600_000;
 
-/** Arena displays the HTTPS *.e2b.app preview inside an arena.ai iframe.
+/**
+ * Arena displays the HTTPS *.e2b.app preview inside an arena.ai iframe.
  * SameSite=Lax cookies are not sent from that iframe; a Secure, Partitioned
  * cookie is needed there. Keep Lax cookies for normal localhost development.
+ * This is decided by the host (not by NODE_ENV) so a production build opened in
+ * the preview can still sign in.
  */
 function isEmbeddedPreview(req: Request): boolean {
   const host = req.get('Host')?.split(':')[0]?.toLowerCase() ?? '';
-  return env.NODE_ENV !== 'production' && /^[a-z0-9-]+\.e2b\.app$/.test(host);
+  return /^[a-z0-9-]+\.e2b\.app$/.test(host);
 }
 function cookieOptions(req: Request): CookieOptions {
   if (isEmbeddedPreview(req)) {
@@ -63,8 +67,11 @@ const loginSchema = z.object({ username: z.string().trim().min(1).max(150), pass
 authRouter.post('/login', loginLimiter, async (req, res) => {
   const { username, password } = parse(loginSchema, req.body);
   const user = await prisma.user.findUnique({ where: { nameNormalized: normalizeName(username) } });
-  if (!user) await burnPasswordCheck(password);
-  if (!user || !user.isActive || !await verifyPassword(user.passwordHash, password)) {
+  // Always perform a bcrypt comparison, even for unknown/inactive names, so response timing
+  // cannot be used to discover which accounts exist.
+  const passwordOk = user ? await verifyPassword(user.passwordHash, password)
+    : await burnPasswordCheck(password).then(() => false);
+  if (!user || !user.isActive || !passwordOk) {
     if (user) await audit(prisma, 'AUTH_LOGIN_FAILED', 'User', user.id, user.id, { reason: 'bad_credentials' });
     throw errors.unauthorized('Invalid name or password.');
   }
@@ -73,17 +80,31 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
   res.json({ user: result.user });
 });
 
+/**
+ * A 4-digit PIN has only 10,000 possibilities. The per-IP limiter below is not enough
+ * against attackers who rotate addresses, so failures are also capped app-wide in a
+ * sliding window. A successful PIN login clears the window.
+ */
+const pinFailures = new FailureWindow(30, 15 * 60_000);
 const pinSchema = z.object({ pin: z.string().regex(/^\d{4}$/, 'Enter a 4-digit PIN.') });
 authRouter.post('/pin-login', loginLimiter, async (req, res) => {
   const { pin } = parse(pinSchema, req.body);
+  if (pinFailures.blocked()) {
+    res.setHeader('Retry-After', String(pinFailures.retryAfterSeconds()));
+    throw errors.tooManyRequests('Too many incorrect PIN attempts. Please wait a few minutes and try again.');
+  }
   const digest = pinDigest(pin);
   const user = await prisma.user.findFirst({ where: { role: 'USER', OR: [{ pinDigest: digest }, { pin }] } });
   // Spring stored PINs as plaintext. Upgrade on first successful login (and on reset).
-  const correct = user && user.isActive && (user.pinHash ? await verifyPin(user.pinHash, pin) : user.pin === pin);
-  if (!correct || !user) {
-    await burnPasswordCheck(pin);
+  // Verify even for an inactive account so the response time does not reveal account state.
+  let correct = false;
+  if (user) correct = user.pinHash ? await verifyPin(user.pinHash, pin) : user.pin === pin;
+  else await burnPasswordCheck(pin);
+  if (!user || !user.isActive || !correct) {
+    pinFailures.record();
     throw errors.unauthorized('Invalid PIN.');
   }
+  pinFailures.reset();
   if (!user.pinHash) {
     const changed = await prisma.user.updateMany({
       where: { id: user.id, pin, pinHash: null, isActive: true },
