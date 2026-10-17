@@ -1,7 +1,18 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDownLeft, ArrowUpRight, FileDown, KeyRound } from 'lucide-react';
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  BookOpen,
+  ClipboardList,
+  FileDown,
+  KeyRound,
+  Scale,
+  TrendingDown,
+  TrendingUp,
+  Users,
+} from 'lucide-react';
 import { api, ApiError, newIdempotencyKey } from '../lib/api';
 import { formatAmount, formatDate, getMonthRange, PAYMENT_METHOD_OPTIONS } from '../lib/format';
 import { invalidateFinancial, useSettings } from '../lib/queries';
@@ -281,9 +292,6 @@ export default function DashboardPage() {
     todayAdminPaidCount: data.todayPayments.paidCount,
   };
 
-  // Photo-like limited view: today's total entries
-  const todayEntriesCount = data?.counts?.ledgerEntries ?? 0;
-  const todayNetBalance = totals.totalPending ?? 0;
   const usersList = data.usersOverview ?? [];
   const pendingEntries = data.pendingEntries ?? [];
   const thisMonthInfo = getMonthRange(data.today, 0);
@@ -293,31 +301,17 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <PageHeader
         title="Admin Deposit & Withdrawal Dashboard"
-        description={`Today is ${formatDate(data.today)} · Manage user selection options, approve Deposits/Withdrawals & download PDFs`}
+        description={`Today · ${formatDate(data.today)} · Review activity, manage users and download reports`}
       />
-
-      {/* Photo-like limited view: Today's summary */}
-      <Card className="bg-slate-50 p-4 mb-4">
-        <div className="grid grid-cols-3 gap-4">
-          <div>
-            <div className="text-xs text-slate-500">Total Entries Today</div>
-            <div className="text-2xl font-mono text-slate-900">{todayEntriesCount}</div>
-          </div>
-          <div>
-            <div className="text-xs text-slate-500">Net Balance</div>
-            <div className="text-2xl font-mono text-indigo-600">{formatAmount(todayNetBalance, symbol)}</div>
-          </div>
-          <div>
-            <div className="text-xs text-slate-500">Deposits</div>
-            <div className="text-2xl font-mono text-emerald-600">{formatAmount(totals.todayUserPaid, symbol)}</div>
-          </div>
-        </div>
-      </Card>
 
       {flashMessage ? <Alert tone="success">{flashMessage}</Alert> : null}
       {errorMessage ? <Alert tone="error">{errorMessage}</Alert> : null}
 
-      <Card>
+      <Card padded={false} className="border-slate-200 bg-white p-4 sm:p-5">
+        <div className="mb-4">
+          <h2 className="text-sm font-semibold text-slate-900">Report filters</h2>
+          <p className="mt-0.5 text-xs text-slate-500">Choose a user, then apply to refresh the dashboard totals and PDF report.</p>
+        </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Field label="From Date">
             {(id) => <TextInput id={id} type="date" value={pdfFrom} max={pdfTo || undefined} disabled />}
@@ -346,8 +340,8 @@ export default function DashboardPage() {
             )}
           </Field>
         </div>
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs text-slate-500">Filters apply to dashboard totals, entries and the PDF report.</p>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+          <p className="text-xs text-slate-500">Totals, entries and reports use the applied filters.</p>
           <div className="flex flex-wrap gap-2">
             <Button variant="primary" loading={dashboardQuery.isFetching} onClick={applyDashboardFilters}>Apply</Button>
             <Button variant="secondary" loading={downloadingSummaryPdf} onClick={() => void handleDownloadSummaryPdf()}>
@@ -358,75 +352,100 @@ export default function DashboardPage() {
       </Card>
 
       {/* Filtered dashboard totals */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Card className="border-l-4 border-l-emerald-600">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Total Deposits (+ Approved)
-          </div>
-          <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-emerald-700">
-            {formatAmount(totals.totalUserPaid, symbol)}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">
-            Today: {formatAmount(totals.todayUserPaid, symbol)} ({totals.todayUserPaidCount} deposits)
-          </div>
-        </Card>
+      <section className="space-y-3" aria-label="Dashboard summary">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <Card
+            padded={false}
+            className="border-emerald-200/80 bg-gradient-to-br from-white to-emerald-50/80 p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md sm:p-5"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Deposits (+)</p>
+                <p className="mt-3 break-words font-mono text-2xl font-bold leading-tight tabular-nums tracking-tight text-emerald-700">
+                  {formatAmount(totals.totalUserPaid, symbol)}
+                </p>
+              </div>
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-100 text-emerald-700">
+                <TrendingUp className="h-5 w-5" aria-hidden="true" />
+              </span>
+            </div>
+            <p className="mt-4 border-t border-emerald-100 pt-3 text-xs text-slate-500">Approved deposits · applied filters</p>
+          </Card>
 
-        <Card className="border-l-4 border-l-rose-600">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Total Withdrawals (- Approved)
-          </div>
-          <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-rose-700">
-            {formatAmount(totals.totalAdminPaid, symbol)}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">
-            Today: {formatAmount(totals.todayAdminPaid, symbol)} ({totals.todayAdminPaidCount} withdrawals)
-          </div>
-        </Card>
+          <Card
+            padded={false}
+            className="border-rose-200/80 bg-gradient-to-br from-white to-rose-50/80 p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md sm:p-5"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Withdrawals (-)</p>
+                <p className="mt-3 break-words font-mono text-2xl font-bold leading-tight tabular-nums tracking-tight text-rose-700">
+                  {formatAmount(totals.totalAdminPaid, symbol)}
+                </p>
+              </div>
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-rose-100 text-rose-700">
+                <TrendingDown className="h-5 w-5" aria-hidden="true" />
+              </span>
+            </div>
+            <p className="mt-4 border-t border-rose-100 pt-3 text-xs text-slate-500">Approved withdrawals · applied filters</p>
+          </Card>
 
-        <Card className="border-l-4 border-l-indigo-600">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Total Net Balance (Deposit - Withdraw)
-          </div>
-          <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-indigo-700">
-            {formatAmount(totals.totalPending, symbol)}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">
-            Across {data.counts.activeUsers ?? data.counts.activeSuppliers + data.counts.activeCustomers} active users
-          </div>
-        </Card>
+          <Card
+            padded={false}
+            className="border-indigo-200/80 bg-gradient-to-br from-white to-indigo-50/80 p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md sm:p-5"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Net Balance</p>
+                <p className="mt-3 break-words font-mono text-2xl font-bold leading-tight tabular-nums tracking-tight text-indigo-700">
+                  {formatAmount(totals.totalPending, symbol)}
+                </p>
+              </div>
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-indigo-100 text-indigo-700">
+                <Scale className="h-5 w-5" aria-hidden="true" />
+              </span>
+            </div>
+            <p className="mt-4 border-t border-indigo-100 pt-3 text-xs text-slate-500">Deposit - Withdraw</p>
+          </Card>
 
-        <Card className="border-l-4 border-l-slate-500">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Total Entries
-          </div>
-          <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-slate-700">
-            {data.counts.ledgerEntries ?? 0}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">
-            All deposit / withdrawal entries
-          </div>
-        </Card>
+          <Card
+            padded={false}
+            className="border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md sm:p-5"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Entries</p>
+                <p className="mt-3 break-words font-mono text-2xl font-bold leading-tight tabular-nums tracking-tight text-slate-800">
+                  {data.counts.ledgerEntries ?? 0}
+                </p>
+              </div>
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700">
+                <ClipboardList className="h-5 w-5" aria-hidden="true" />
+              </span>
+            </div>
+            <p className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-500">Approved deposit / withdrawal entries</p>
+          </Card>
+        </div>
 
-        <Card className="border-l-4 border-l-sky-500">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Users
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="User and book counts">
+          <div className="inline-flex items-center gap-2 rounded-xl border border-sky-100 bg-white/90 px-3 py-2 shadow-sm">
+            <span className="grid h-7 w-7 place-items-center rounded-lg bg-sky-50 text-sky-700">
+              <Users className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <span className="text-xs font-medium text-slate-600">Users</span>
+            <span className="text-sm font-bold tabular-nums text-slate-900">{data.counts.totalUsers ?? 0}</span>
+            <span className="text-xs text-slate-400">· {data.counts.activeUsers ?? 0} active</span>
           </div>
-          <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-sky-700">
-            {data.counts.totalUsers ?? 0}
+          <div className="inline-flex items-center gap-2 rounded-xl border border-violet-100 bg-white/90 px-3 py-2 shadow-sm">
+            <span className="grid h-7 w-7 place-items-center rounded-lg bg-violet-50 text-violet-700">
+              <BookOpen className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <span className="text-xs font-medium text-slate-600">Books</span>
+            <span className="text-sm font-bold tabular-nums text-slate-900">{data.counts.activeBooks ?? 0}</span>
+            <span className="text-xs text-slate-400">active</span>
           </div>
-          <div className="mt-1 text-xs text-slate-500">
-            {data.counts.activeUsers ?? 0} active
-          </div>
-        </Card>
-
-        <Card className="border-l-4 border-l-violet-500">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Active Books</div>
-          <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-violet-700">
-            {data.counts.activeBooks ?? 0}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">Available ledgers / websites</div>
-        </Card>
-      </div>
+        </div>
+      </section>
 
       {/* Pending Submissions Queue (Admin Approval Section) */}
       {pendingEntries.length > 0 ? (
