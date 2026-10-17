@@ -45,6 +45,12 @@ export function requireSameOriginWrites(req: Request, _res: Response, next: Next
     next(errors.forbidden('Missing request header. Please reload the page and try again.'));
     return;
   }
+  // Cross-site browser writes always carry Origin; a cross-site write without one is
+  // inconsistent, so reject it as an extra layer next to SameSite and the custom header.
+  if (!req.get('Origin') && req.get('Sec-Fetch-Site') === 'cross-site') {
+    next(errors.forbidden('Cross-site request blocked.'));
+    return;
+  }
   const origin = req.get('Origin');
   if (origin) {
     if (env.CORS_ORIGINS.length > 0 && isAllowedCorsOrigin(origin)) {

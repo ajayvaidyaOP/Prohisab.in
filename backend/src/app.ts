@@ -15,21 +15,36 @@ export function createApp(): express.Express {
   app.disable('x-powered-by');
   if (env.TRUST_PROXY) app.set('trust proxy', 1);
 
+  const isProduction = env.NODE_ENV === 'production';
   app.use(
     helmet({
       frameguard: false,
       contentSecurityPolicy: {
         useDefaults: true,
         directives: {
-          'img-src': ["'self'", 'data:', 'https:', 'http:'], // admin-configured business logo URL
+          // Admin-configured business logo URL. Plain HTTP images are only useful
+          // during local development; production pages must not load mixed content.
+          'img-src': ["'self'", 'data:', 'https:', ...(isProduction ? [] : ['http:'])],
           'script-src': ["'self'"],
           'style-src': ["'self'", "'unsafe-inline'"],
+          'object-src': ["'none'"],
+          'base-uri': ["'self'"],
+          'form-action': ["'self'"],
+          'frame-src': ["'self'"],
+          // Assets are same-origin, so forced HTTPS upgrades only risk breaking a
+          // plain-HTTP LAN install; HTTPS deployments stay protected by HSTS.
+          'upgrade-insecure-requests': null,
           'frame-ancestors': ["'self'", 'https://*.e2b.app', 'https://arena.ai', 'https://*.arena.ai'], // live Arena preview
         },
       },
       crossOriginEmbedderPolicy: false,
     }),
   );
+  // This app needs no device APIs; deny them explicitly for any injected content.
+  app.use((_req, res, next) => {
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
+    next();
+  });
   app.use(requestId);
   app.use('/api', corsMiddleware);
 

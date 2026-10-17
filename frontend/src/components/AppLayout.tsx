@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useId, useRef, useState } from 'react';
-import { Outlet, NavLink, useLocation, useNavigate } from 'react-router';
+import { Link, Outlet, NavLink, useLocation, useNavigate } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowRightLeft,
@@ -101,13 +101,23 @@ export function AppLayout() {
         <header className="sticky top-0 z-30 border-b border-indigo-100 bg-[#eef2ff]/95 px-3 pb-2 pt-2 backdrop-blur print:hidden sm:px-5">
           <div className="mx-auto w-full max-w-7xl">
             <div className="flex items-center justify-between gap-3 rounded-2xl bg-gradient-to-r from-[#15265d] via-[#243f9b] to-[#354fd0] px-3 py-3 text-white shadow-lg shadow-indigo-900/10 sm:px-5">
-              <div className="flex min-w-0 items-center gap-3">
+              {/* The brand is the way home: Dashboard for admins, own ledger for staff. */}
+              <Link
+                to="/"
+                onClick={() => {
+                  setMenuOpen(false);
+                  window.scrollTo({ top: 0, behavior: 'auto' });
+                }}
+                aria-label={`${businessName} — go to dashboard`}
+                title="Go to dashboard"
+                className="group -m-1 flex min-w-0 items-center gap-3 rounded-xl p-1 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              >
                 <BrandLogo url={logoUrl} name={businessName} />
-                <div className="min-w-0">
-                  <p className="truncate text-base font-bold leading-tight">{businessName}</p>
-                  <p className="mt-1 truncate text-xs text-indigo-100 sm:text-sm">Deposit & Withdrawal CRM</p>
-                </div>
-              </div>
+                <span className="min-w-0">
+                  <span className="block truncate text-base font-bold leading-tight group-hover:underline">{businessName}</span>
+                  <span className="mt-1 block truncate text-xs text-indigo-100 sm:text-sm">Deposit & Withdrawal CRM</span>
+                </span>
+              </Link>
               <div className="flex shrink-0 items-center gap-2">
                 {isAdmin && (
                   <div className="hidden items-center gap-2 lg:flex">

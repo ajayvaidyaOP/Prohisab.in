@@ -17,6 +17,8 @@ export default function LoginPage() {
   const [errors, setErrors] = useState<{ username?: string; password?: string; pin?: string }>({});
 
   const from = (location.state as { from?: string } | null)?.from ?? '/';
+  // Only allow an in-app path (a lone '/' or normal path); never a protocol-relative URL.
+  const safeFrom = from.startsWith('/') && !from.startsWith('//') ? from : '/';
   const expired = (location.state as { reason?: string } | null)?.reason === 'expired';
 
   // A 200 login is not enough inside an embedded preview: some browsers discard
@@ -38,7 +40,7 @@ export default function LoginPage() {
     mutationFn: () => signInAndConfirm(() => api.auth.login(username.trim(), password)),
     onSuccess: (data) => {
       qc.setQueryData(ME_KEY, data.user);
-      navigate(from.startsWith('/') ? from : '/', { replace: true });
+      navigate(safeFrom, { replace: true });
     },
     onError: () => setPassword(''),
   });
@@ -47,12 +49,12 @@ export default function LoginPage() {
     mutationFn: () => signInAndConfirm(() => api.auth.pinLogin(pin.trim())),
     onSuccess: (data) => {
       qc.setQueryData(ME_KEY, data.user);
-      navigate(from.startsWith('/') ? from : '/', { replace: true });
+      navigate(safeFrom, { replace: true });
     },
     onError: () => setPin(''),
   });
 
-  if (me.isSuccess) return <Navigate to="/" replace />;
+  if (me.isSuccess) return <Navigate to={safeFrom} replace />;
 
   const submitAdmin = (event: FormEvent) => {
     event.preventDefault();

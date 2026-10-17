@@ -9,6 +9,7 @@ import { addDays } from '../src/lib/dates.ts';
 import { seedDatabase } from '../src/scripts/seed.ts';
 import { csvCell } from '../src/services/ledger.ts';
 import { sha256Hex, stableStringify } from '../src/lib/security.ts';
+import { FailureWindow } from '../src/lib/throttle.ts';
 import { checkPostingDate, parseKind } from '../src/services/transactions.ts';
 import { statements, migrationSql, BASELINE, NODE_SUPPORT } from '../src/scripts/migrate.ts';
 
@@ -34,6 +35,22 @@ test('same MySQL schema and migrations work in MariaDB WASM without losing rows'
   assert.equal(await prisma.user.count({ where: { role: 'ADMIN' } }), 1);
   await seedDatabase(prisma);
   assert.equal(await prisma.user.count({ where: { role: 'ADMIN' } }), 1);
+});
+
+test('PIN failure window throttles distributed guessing and recovers', () => {
+  const bucket = new FailureWindow(3, 1_000);
+  const t0 = 1_000_000;
+  assert.equal(bucket.blocked(t0), false);
+  bucket.record(t0);
+  bucket.record(t0 + 100);
+  bucket.record(t0 + 200);
+  assert.equal(bucket.blocked(t0 + 300), true);
+  assert.equal(bucket.retryAfterSeconds(t0 + 300), 1);
+  // Once the oldest failure leaves the window, guessing is possible again.
+  assert.equal(bucket.blocked(t0 + 1_201), false);
+  bucket.record(t0 + 1_300);
+  bucket.reset();
+  assert.equal(bucket.blocked(t0 + 1_300), false);
 });
 
 test('cookie-only login, CSRF, origin and admin permissions', async () => {
