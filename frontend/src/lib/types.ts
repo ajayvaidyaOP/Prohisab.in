@@ -86,6 +86,7 @@ export interface LedgerEntry {
   type: TransactionType;
   typeLabel: string;
   description: string;
+  detail?: string | null;
   side: BalanceSide;
   direction: EntryDirection;
   amount: string;
@@ -103,6 +104,12 @@ export interface LedgerEntry {
   runningBalance: string;
   crossSide: boolean;
   createdAt: string;
+  bookId?: number | null;
+  bookName?: string | null;
+  staffName?: string | null;
+  customerId?: string | null;
+  bankDetails?: string | null;
+  option?: string | null;
 }
 
 export interface LedgerResponse {

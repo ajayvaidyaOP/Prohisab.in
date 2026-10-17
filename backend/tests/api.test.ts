@@ -212,6 +212,82 @@ test('approval, precise decimals, filtered reports, PDF/CSV and reversal', async
   assert.match((signedPdf.body as Buffer).toString('latin1'), /Rs\. -0\.90/);
 });
 
+test('own entries can be edited within 1 hour; window, ownership and reversals lock edits', async () => {
+  const created = await write('/transactions', staff, {
+    accountId: staffId, type: 'DEPOSIT', entryDate: today, amount: '2.00',
+    optionName: 'Cash Deposit', bookId, customerId: 'C-1721', bankDetails: 'GPay 98765',
+  }, 'edit-create-001');
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const editableId = created.body.transaction.id;
+
+  // Ledger rows carry the portal history columns (book, staff, customer, bank).
+  const ledger = await request(app).get(`/api/accounts/${staffId}/ledger?from=${today}`).set('Cookie', staff);
+  assert.equal(ledger.status, 200);
+  const mine = ledger.body.entries.find((row: { id: number }) => row.id === editableId);
+  assert.equal(mine.bookName, 'Site Ledger');
+  assert.equal(mine.staffName, 'Neha Staff');
+  assert.equal(mine.customerId, 'C-1721');
+  assert.equal(mine.bankDetails, 'GPay 98765');
+
+  // The owner edits amount and bank details within the 1-hour window.
+  const edited = await request(app).patch(`/api/transactions/${editableId}`).set(csrf).set('Cookie', staff)
+    .send({ amount: '2.50', bankDetails: 'UPI 12345' });
+  assert.equal(edited.status, 200, JSON.stringify(edited.body));
+  assert.equal(edited.body.transaction.amount, '2.50');
+  assert.equal(edited.body.transaction.bankDetails, 'UPI 12345');
+  // Prior approved deposits: 0.10 (back-dated staff entry) + 0.20 (admin entry) + this 2.50.
+  assert.equal(edited.body.account.totalUserPaid, '2.80');
+
+  // Invalid amounts never post.
+  const badAmount = await request(app).patch(`/api/transactions/${editableId}`).set(csrf).set('Cookie', staff)
+    .send({ amount: '0' });
+  assert.equal(badAmount.status, 400);
+  const badOption = await request(app).patch(`/api/transactions/${editableId}`).set(csrf).set('Cookie', staff)
+    .send({ optionName: 'Fabricated' });
+  assert.equal(badOption.status, 422);
+
+  // Staff cannot edit another user's entry.
+  const other = await request(app).post('/api/accounts').set(csrf).set('Cookie', admin)
+    .send({ name: 'Other User', password: 'OtherPass123' });
+  assert.equal(other.status, 201, JSON.stringify(other.body));
+  const foreign = await write('/transactions', admin, { accountId: other.body.account.id,
+    type: 'DEPOSIT', entryDate: today, amount: '1.00', optionName: 'Cash Deposit' }, 'edit-other-001');
+  assert.equal(foreign.status, 201);
+  const foreignEdit = await request(app).patch(`/api/transactions/${foreign.body.transaction.id}`)
+    .set(csrf).set('Cookie', staff).send({ amount: '9.00' });
+  assert.equal(foreignEdit.status, 404);
+
+  // Admins may edit any entry within the window.
+  const adminEdit = await request(app).patch(`/api/transactions/${editableId}`).set(csrf).set('Cookie', admin)
+    .send({ detail: 'adjusted by admin' });
+  assert.equal(adminEdit.status, 200, JSON.stringify(adminEdit.body));
+  assert.equal(adminEdit.body.transaction.detail, 'adjusted by admin');
+
+  // Reversed entries are locked.
+  const reversal = await write(`/transactions/${editableId}/reversal`, admin,
+    { reason: 'correcting test entry' }, 'edit-reverse-001');
+  assert.equal(reversal.status, 200, JSON.stringify(reversal.body));
+  const reversedEdit = await request(app).patch(`/api/transactions/${editableId}`).set(csrf).set('Cookie', staff)
+    .send({ amount: '5.00' });
+  assert.equal(reversedEdit.status, 422);
+  assert.equal(reversedEdit.body.error.code, 'ALREADY_REVERSED');
+
+  // Outside the 1-hour window the entry locks for everyone.
+  const fresh = await write('/transactions', staff, { accountId: staffId, type: 'DEPOSIT',
+    entryDate: today, amount: '0.50', optionName: 'Cash Deposit', bookId }, 'edit-create-002');
+  assert.equal(fresh.status, 201);
+  await prisma.transaction.update({ where: { id: BigInt(fresh.body.transaction.id) },
+    data: { createdAt: new Date(Date.now() - 2 * 60 * 60_000) } });
+  const expired = await request(app).patch(`/api/transactions/${fresh.body.transaction.id}`)
+    .set(csrf).set('Cookie', staff).send({ amount: '0.75' });
+  assert.equal(expired.status, 422);
+  assert.equal(expired.body.error.code, 'EDIT_WINDOW_EXPIRED');
+  const expiredAdmin = await request(app).patch(`/api/transactions/${fresh.body.transaction.id}`)
+    .set(csrf).set('Cookie', admin).send({ amount: '0.75' });
+  assert.equal(expiredAdmin.status, 422);
+  assert.equal(expiredAdmin.body.error.code, 'EDIT_WINDOW_EXPIRED');
+});
+
 test('reject/approve race decides at most once, and PIN/password resets revoke sessions', async () => {
   const pending = await write('/transactions', staff, { accountId: staffId, type: 'WITHDRAWAL',
     entryDate: today, amount: '1.00', optionName: 'Cash Withdrawal', bookId }, 'race-entry');

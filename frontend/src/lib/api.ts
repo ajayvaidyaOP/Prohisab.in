@@ -125,7 +125,7 @@ function friendlyStatusMessage(status: number): string {
 const get = <T>(path: string, query?: Query) => request<T>('GET', path, { query });
 const post = <T>(path: string, body?: unknown, idempotencyKey?: string) => request<T>('POST', path, { body, idempotencyKey });
 const put = <T>(path: string, body?: unknown) => request<T>('PUT', path, { body });
-const patch = <T>(path: string, body?: unknown) => request<T>('PATCH', path, { body });
+const patch = <T>(path: string, body?: unknown, idempotencyKey?: string) => request<T>('PATCH', path, { body, idempotencyKey });
 
 /**
  * Maps the UI's transaction payload onto the server contract:
@@ -272,6 +272,12 @@ export const api = {
     create: (body: Record<string, unknown>, idempotencyKey: string) =>
       post<{ transaction: Transaction; account: AccountSummary; replayed: boolean }>(
         '/transactions',
+        mapTransactionInput(body),
+        idempotencyKey,
+      ),
+    update: (id: number, body: Record<string, unknown>, idempotencyKey: string) =>
+      patch<{ transaction: Transaction; account: AccountSummary; replayed: boolean }>(
+        `/transactions/${id}`,
         mapTransactionInput(body),
         idempotencyKey,
       ),

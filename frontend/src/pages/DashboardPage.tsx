@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDownLeft, ArrowUpRight, FileDown, KeyRound, Plus, Trash2 } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, FileDown, KeyRound } from 'lucide-react';
 import { api, ApiError, newIdempotencyKey } from '../lib/api';
 import { formatAmount, formatDate, getMonthRange, PAYMENT_METHOD_OPTIONS } from '../lib/format';
 import { invalidateFinancial, useSettings } from '../lib/queries';
@@ -27,7 +27,7 @@ export default function DashboardPage() {
   const settings = useSettings();
   const [pdfFrom, setPdfFrom] = useState('');
   const [pdfTo, setPdfTo] = useState('');
-  const [pdfBookId, setPdfBookId] = useState('');
+  const [pdfBookId] = useState('');
   const [pdfUserId, setPdfUserId] = useState('');
   const [appliedFilters, setAppliedFilters] = useState<DashboardFilter>({});
   const [filterInitialized, setFilterInitialized] = useState(false);
@@ -296,7 +296,7 @@ export default function DashboardPage() {
         description={`Today is ${formatDate(data.today)} · Manage user selection options, approve Deposits/Withdrawals & download PDFs`}
       />
 
-      {/* Photo-like limited view: Today's summary }}
+      {/* Photo-like limited view: Today's summary */}
       <Card className="bg-slate-50 p-4 mb-4">
         <div className="grid grid-cols-3 gap-4">
           <div>

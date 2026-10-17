@@ -6,13 +6,13 @@ import { audit } from '../lib/audit.ts';
 import { dateRange, id, nullableString, num, pagination, paging, parse, textParam, dateParam } from '../lib/validation.ts';
 import { errors } from '../lib/errors.ts';
 import { formatMoney, money, parseMoneyInput } from '../lib/money.ts';
-import { isoDateToDbDate, isValidIsoDate } from '../lib/dates.ts';
+import { dbDateToIso, isoDateToDbDate, isValidIsoDate } from '../lib/dates.ts';
 import { withIdempotency } from '../lib/idempotency.ts';
 import { buildMultiReportPdf } from '../lib/pdf.ts';
 import { actor, requireAdmin, requireAuth } from '../middleware/auth.ts';
 import { summary } from '../services/accounts.ts';
 import { businessToday, businessView } from '../services/settings.ts';
-import { insertEntry, loadTransaction, lockEntry, parseKind, serializeTransaction, transactionInclude } from '../services/transactions.ts';
+import { checkPostingDate, insertEntry, loadTransaction, lockEntry, parseKind, serializeTransaction, transactionInclude, validateBook, validateOption } from '../services/transactions.ts';
 
 export const transactionsRouter = Router();
 transactionsRouter.use(requireAuth);
@@ -123,6 +123,79 @@ transactionsRouter.post('/', async (req, res) => {
   res.status(result.status).json(result.body);
 });
 
+/** How long after creation the entry's author may still edit it. */
+const EDIT_WINDOW_MS = 60 * 60_000;
+
+const editSchema = z.object({
+  type: z.string().min(1).optional(),
+  entryDate: z.string().optional(),
+  amount: z.union([z.string(), z.number()]).optional(),
+  optionName: z.string().max(120).nullish(), option: z.string().max(120).nullish(),
+  detail: z.string().max(500).nullish(), description: z.string().max(500).nullish(),
+  paymentMethod: z.string().max(20).nullish(), referenceNumber: z.string().max(100).nullish(),
+  bookId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullish(),
+  customerId: z.string().max(60).nullish(), bankDetails: z.string().max(255).nullish(),
+});
+/**
+ * Edit an own entry within 1 hour of creation (admins may edit any entry).
+ * Only pending/approved entries that are not reversals and not yet reversed can be edited;
+ * money columns are recalculated from the ledger rows, so an edit stays consistent everywhere.
+ */
+transactionsRouter.patch('/:id', async (req, res) => {
+  const entryId = id(req.params.id);
+  const viewer = actor(req);
+  const body = parse(editSchema, req.body);
+  const today = await businessToday();
+  const result = await withIdempotency(`PATCH /api/transactions/${entryId}`, viewer.id,
+    req.get('Idempotency-Key') || undefined, { entryId: String(entryId) }, async (tx) => {
+      const current = await loadTransaction(tx, entryId);
+      if (viewer.role !== 'ADMIN' && current.userId !== viewer.id) throw errors.notFound('Transaction not found.');
+      if (current.reversalOfId !== null) throw errors.unprocessable('REVERSAL_ENTRY', 'Reversal entries cannot be edited.');
+      if (current.reversedById !== null) throw errors.unprocessable('ALREADY_REVERSED', 'This entry has already been reversed.');
+      if (current.approvalStatus === 'REJECTED') throw errors.unprocessable('REJECTED_ENTRY', 'Rejected entries cannot be edited.');
+      if (Date.now() - current.createdAt.getTime() > EDIT_WINDOW_MS) {
+        throw errors.unprocessable('EDIT_WINDOW_EXPIRED', 'Entries can only be edited for 1 hour after creation.');
+      }
+      const target = await tx.user.findUniqueOrThrow({ where: { id: current.userId } });
+      if (!target.isActive) throw errors.unprocessable('ACCOUNT_INACTIVE', 'This account is inactive. Reactivate it before editing entries.');
+
+      const kind = body.type !== undefined ? parseKind(body.type) : current.kind;
+      let amount: Prisma.Decimal | string = current.amount;
+      if (body.amount !== undefined) {
+        try { amount = parseMoneyInput(body.amount); } catch (error) {
+          throw errors.badRequest(error instanceof Error ? error.message : 'Invalid amount.', [{ field: 'amount', message: 'Enter an amount with up to 2 decimals.' }]);
+        }
+        if (!money(amount).gt(0)) throw errors.badRequest('Amount must be greater than zero.', [{ field: 'amount', message: 'Enter a positive amount.' }]);
+      }
+      const optionRaw = nullableString(body.optionName ?? body.option) ?? current.optionName;
+      const optionName = await validateOption(tx, optionRaw);
+      const detail = body.detail !== undefined || body.description !== undefined
+        ? nullableString(body.detail ?? body.description) : current.detail;
+      const entryDate = dateParam(body.entryDate, 'entryDate') ?? dbDateToIso(current.entryDate);
+      if (entryDate !== dbDateToIso(current.entryDate)) {
+        checkPostingDate(entryDate, today, 'USER', target.backDateAllowedDate ? dbDateToIso(target.backDateAllowedDate) : null);
+      }
+      const bookId = body.bookId !== undefined ? (body.bookId ? id(body.bookId, 'bookId') : null) : current.bookId;
+      await validateBook(tx, current.userId, bookId, true);
+
+      const updated = await tx.transaction.update({ where: { id: entryId }, data: {
+        kind, entryDate: isoDateToDbDate(entryDate), amount, optionName, detail,
+        paymentMethod: body.paymentMethod !== undefined
+          ? nullableString(body.paymentMethod)?.toUpperCase() ?? null : current.paymentMethod,
+        referenceNumber: body.referenceNumber !== undefined ? nullableString(body.referenceNumber) : current.referenceNumber,
+        bookId,
+        customerId: body.customerId !== undefined ? nullableString(body.customerId) : current.customerId,
+        bankDetails: body.bankDetails !== undefined ? nullableString(body.bankDetails) : current.bankDetails,
+      }, include: transactionInclude });
+      await audit(tx, 'TRANSACTION_EDITED', 'LedgerTransaction', entryId, viewer.id, {
+        userId: current.userId, previousAmount: formatMoney(current.amount), amount: formatMoney(amount),
+        previousOption: current.optionName, option: optionName,
+      });
+      return { status: 200, body: { transaction: serializeTransaction(updated), account: await summary(tx, current.userId) } };
+    });
+  res.status(result.status).json(result.body);
+});
+
 transactionsRouter.post('/:id/approve', requireAdmin, async (req, res) => {
   const entryId = id(req.params.id), viewer = actor(req);
   const result = await withIdempotency(`POST /api/transactions/${entryId}/approve`, viewer.id,
@@ -132,8 +205,7 @@ transactionsRouter.post('/:id/approve', requireAdmin, async (req, res) => {
       const target = await tx.user.findUniqueOrThrow({ where: { id: row.userId } });
       if (!target.isActive) throw errors.unprocessable('ACCOUNT_INACTIVE', 'This account is inactive. Reactivate it before approving entries.');
       if (row.approvalStatus === 'REJECTED') throw errors.conflict('ALREADY_REJECTED', 'This entry has already been rejected.');
-      if (row.approvalStatus === 'APPROVED') return { status: 200, body: {
-        transaction: serializeTransaction(row), account: await summary(tx, row.userId), alreadyApproved: true } };
+      if (row.approvalStatus === 'APPROVED') throw errors.conflict('ALREADY_APPROVED', 'This entry has already been approved.');
       await tx.transaction.update({ where: { id: entryId }, data: {
         approvalStatus: 'APPROVED', reviewedById: viewer.id, reviewedAt: new Date(), rejectionReason: null,
       } });
