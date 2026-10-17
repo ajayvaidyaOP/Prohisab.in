@@ -6,6 +6,7 @@ import { env } from '../config/env.ts';
 import { buildPoolConfig } from '../config/database.ts';
 
 export const BASELINE = '20261017000000_spring_schema';
+export const DIRECT_ENTRIES = '20261018000000_direct_entries';
 export const NODE_SUPPORT = '20261017010000_node_support';
 export const migrationSql = (name: string) => readFileSync(path.resolve(process.cwd(), `prisma/migrations/${name}/migration.sql`), 'utf8');
 
@@ -97,6 +98,15 @@ export async function migrate(conn: Connection, { allowLegacy = false } = {}) {
     }
     await mark(conn, NODE_SUPPORT, support);
     console.log('Applied additive Node support (PIN hashes + idempotency table).');
+  }
+  const directEntries = migrationSql(DIRECT_ENTRIES);
+  if (!await recorded(conn, DIRECT_ENTRIES, directEntries)) {
+    for (const sql of statements(directEntries)) {
+      if (sql.startsWith('ALTER TABLE transactions ADD COLUMN') && await exists(conn, 'columns', 'edited_at', 'transactions')) continue;
+      await conn.query(sql);
+    }
+    await mark(conn, DIRECT_ENTRIES, directEntries);
+    console.log('Enabled direct entries and posted the previous pending queue.');
   }
 }
 

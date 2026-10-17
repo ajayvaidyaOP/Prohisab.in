@@ -1,6 +1,6 @@
 # deposit.in — Deposit & Withdrawal Ledger
 
-A staff/admin ledger with **PIN or password login**, book access permissions, one-day back-date grants, approval/rejection, reversals, dashboards, audit history, and PDF/CSV reports. **Approved deposits − approved withdrawals = net balance**; pending/rejected entries do not change it. Amounts are MySQL `DECIMAL(15,2)` and travel over the API as decimal strings.
+A staff/admin ledger with **PIN or password login**, book access permissions, one-day back-date grants, direct entry posting, Edit/Delete actions, reversals, dashboards, audit history, and PDF/CSV reports. **Deposits − withdrawals = net balance**; both staff and admin entries count immediately. Historical rejected entries remain excluded. Amounts are MySQL `DECIMAL(15,2)` and travel over the API as decimal strings.
 
 | Layer | Technology |
 |---|---|
@@ -21,17 +21,25 @@ Initial **demo-only** login (unless overridden by `ADMIN_PASSWORD`): `admin` / `
 
 Settings intentionally shows only company name/logo and the admin password-change form. Saving company branding preserves the existing currency, time zone, contact details and entry options; the full activity log remains under Audit.
 
-Admin creates staff using a unique **name and four-digit PIN** (or name + password), adds Books and grants staff access, then can authorize a particular back-date. Staff can only see their assigned active books, own ledger and transactions. Staff submissions wait for admin approval; admin entries post immediately. An admin can reset a staff password/PIN and revoke their sessions. The admin can export individual statements, summary PDFs and filtered multi-reports.
+Admin creates staff using a unique **name and four-digit PIN** (or name + password), adds Books and grants staff access, then can authorize a particular back-date. Staff can only see their assigned active books, own ledger and transactions. Both deposits and withdrawals post immediately, with no approval step. An admin can reset a staff password/PIN and revoke their sessions. The admin can export individual statements, summary PDFs and filtered multi-reports.
+
+### Today’s dashboard and navigation
+
+Navigation is available only through the header menu on desktop and mobile; there is no duplicate sidebar or reserved left-hand space. The admin dashboard contains one **Today’s Entries** table (with Edit/Delete), four today-only totals, and one PDF export. It uses the server’s business date and refreshes the date/data every minute while open. Book/staff filters apply consistently to the table, full-result totals, pagination and PDF; the dashboard never defaults to all-time balances. Use **View other dates** or the Entries menu for historical reporting, and **Users** for account management. The duplicate date/book summary table, all-user ledger table and separate monthly PDF selector have been removed from the dashboard.
 
 ### Staff portal
 
-A single assigned active book is automatically selected for new entries; multiple assigned books remain selectable. My History uses calendar From/To controls with Today and All dates shortcuts. Click Filter to apply a range and see the user's own entries and approved deposit/withdrawal/net totals for that period. History access does not grant back-date posting permission or access to another user's ledger. Totals cover the full selection; the table shows the latest 500 matching entries, including their ledger dates and approval statuses.
+A single assigned active book is automatically selected for new entries; multiple assigned books remain selectable. My History uses calendar From/To controls with Today and All dates shortcuts. Click Filter to apply a range and see the user's own entries and deposit/withdrawal/net totals for that period. History access does not grant back-date posting permission or access to another user's ledger. Totals cover the full selection; the table shows the latest 500 matching entries, with Time (IST), Book, Staff, Customer ID, Type, Amount, Bank account, Edit status and Edit/Delete actions. Edit status is Original or Edited (persisted separately from the permission window). Entries can be edited/deleted for 1 hour after creation; staff can manage only their own entries. Reversal-linked entries cannot be edited/deleted. Deletion requires confirmation, updates totals immediately and preserves an audit record.
 
 ### Individual ledger vs. combined staff report
 
-- **Users → Ledger**: one staff account, running/closing balance, approvals and corrections.
+- **Users → Ledger**: one staff account, closing balance and Edit/Delete corrections.
 - **Multi User Report**: compare all staff or a chosen group for the same date range and book. Defaults to today; Today/All dates shortcuts are available. It shows approved collection, withdrawal and period net, staff-wise and book-wise comparisons, then paginated combined history. Pending/rejected counts are separate. Zero-activity and inactive selected staff are included; archived and unassigned books retain their history.
 - Click **Show Report** to apply changes. Editing a filter does not silently change the results or PDF. **Download Combined PDF** includes both comparison sections and all matching entries, not just the visible history page. Reports are limited to 10,000 entries; narrow the dates for larger datasets. Period net is not an all-time ledger closing balance.
+
+### Upgrading to direct posting
+
+Run `npm run migrate:deploy` against MySQL before starting this version (back up first). The new migration adds `edited_at`, backfills it from edit audit events, and posts previously pending entries with `TRANSACTION_AUTO_POSTED` audit records. Historical rejected entries stay excluded. Existing deposits, withdrawals and reversal links are retained. The local demo applies this upgrade automatically; legacy imports also post pending entries. The legacy approval fields/endpoints remain for backwards compatibility, not for new-entry workflow.
 
 ## Run with an existing or new MySQL database
 
@@ -82,6 +90,6 @@ This copies old logins (Argon2 hashes retained), accounts, opening balances, led
 
 Frontend interaction tests cover the shared PIN/book user-creation form, legacy create-link redirect, edit-page preservation, header navigation, Escape/outside-click dismissal, staff navigation restrictions, and logout. Run them separately with `npm --prefix frontend test`.
 
-The integration suite covers session/CSRF/RBAC, PIN and legacy password migration, Books/back-date limits, monetary precision, idempotency, approvals/rejections/races, reversals, PDF/CSV, and importing the earlier Express schema without overwriting existing rows. It runs without a MySQL service; **a real MySQL deployment must still be backed up and tested with your own data**.
+The integration suite covers session/CSRF/RBAC, PIN and legacy password migration, Books/back-date limits, monetary precision, idempotency, direct posting, editing/deletion permissions, idempotent retries, reversals, PDF/CSV, and importing the earlier Express schema without overwriting existing rows. It runs without a MySQL service; **a real MySQL deployment must still be backed up and tested with your own data**.
 
 API contract, routes, error codes and sample requests: [docs/API.md](docs/API.md).

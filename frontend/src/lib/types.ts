@@ -98,6 +98,7 @@ export interface LedgerEntry {
   reversedById: number | null;
   isReversal: boolean;
   isReversed: boolean;
+  editedAt?: string | null;
   approvalStatus?: ApprovalStatus;
   reviewedAt?: string | null;
   rejectionReason?: string | null;
@@ -151,6 +152,7 @@ export interface Transaction {
   reversedById: number | null;
   isReversal: boolean;
   isReversed: boolean;
+  editedAt?: string | null;
   approvalStatus?: ApprovalStatus;
   reviewedBy?: { id: number; username: string } | null;
   reviewedAt?: string | null;

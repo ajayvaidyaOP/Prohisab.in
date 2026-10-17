@@ -126,3 +126,15 @@ it('loads the latest 500 entries correctly for a partially filled last page, whi
   expect(screen.getByText(/550 total in selected dates/)).toBeTruthy();
   expect(mocks.ledger.mock.calls.filter(([, params]) => params.page === 1)).toHaveLength(1);
 });
+
+it('submits withdrawals without an approval message', async () => {
+  const user = userEvent.setup();
+  renderPage();
+  const type = await screen.findByLabelText(/Transaction type/);
+  await user.selectOptions(type, 'WITHDRAWAL');
+  await user.type(screen.getByLabelText(/Amount/), '25');
+  await user.click(screen.getByRole('button', { name: 'Submit Entry' }));
+  await screen.findByText(/submitted! Balance updated/);
+  expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ type: 'WITHDRAWAL' }), expect.any(String));
+  expect(screen.queryByText(/Pending Admin Approval/)).toBeNull();
+});

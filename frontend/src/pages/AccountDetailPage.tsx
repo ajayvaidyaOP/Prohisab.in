@@ -1,14 +1,13 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useLocation, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, newIdempotencyKey } from '../lib/api';
-import { formatAmount, formatDate, getMonthRange, PAYMENT_METHOD_OPTIONS } from '../lib/format';
+import { formatAmount, getMonthRange, PAYMENT_METHOD_OPTIONS } from '../lib/format';
 import { invalidateFinancial, useSettings } from '../lib/queries';
-import type { LedgerEntry, PaymentMethod } from '../lib/types';
-import { ReverseDialog } from '../components/ReverseDialog';
+import type { PaymentMethod } from '../lib/types';
+import { ManagedEntries } from '../components/ManagedEntries';
 import {
   Alert,
-  Badge,
   Button,
   ButtonLink,
   Card,
@@ -41,7 +40,6 @@ export default function AccountDetailPage() {
   const [to, setTo] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [reversing, setReversing] = useState<LedgerEntry | null>(null);
   const [confirmDeactivate, setConfirmDeactivate] = useState(false);
 
   // Quick Entry / Settlement Form State
@@ -54,10 +52,6 @@ export default function AccountDetailPage() {
   const [quickError, setQuickError] = useState<string | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState(() => newIdempotencyKey());
 
-  // Reject Modal State
-  const [rejectTarget, setRejectTarget] = useState<LedgerEntry | null>(null);
-  const [rejectReason, setRejectReason] = useState('');
-  const [rejectError, setRejectError] = useState<string | null>(null);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   const handleDownloadPdf = async () => {
@@ -86,6 +80,12 @@ export default function AccountDetailPage() {
     queryFn: () => api.ledger.page(accountId, filters),
     enabled: Number.isFinite(accountId),
   });
+
+  useEffect(() => {
+    if (ledgerQuery.data && page > Math.max(1, ledgerQuery.data.pagination.totalPages)) {
+      setPage(Math.max(1, ledgerQuery.data.pagination.totalPages));
+    }
+  }, [ledgerQuery.data, page]);
 
   const statusMutation = useMutation({
     mutationFn: (isActive: boolean) => api.accounts.setStatus(accountId, isActive),
@@ -141,34 +141,6 @@ export default function AccountDetailPage() {
     },
   });
 
-  const approveMutation = useMutation({
-    mutationFn: (entryId: number) => api.transactions.approve(entryId, newIdempotencyKey()),
-    onSuccess: (res) => {
-      invalidateFinancial(queryClient, accountId);
-      setFlashMessage(
-        `Approved entry #${res.transaction.id} (${formatAmount(res.transaction.amount, symbol)}).`,
-      );
-    },
-    onError: (err) => {
-      setFlashMessage(err instanceof ApiError ? err.message : 'Could not approve entry.');
-    },
-  });
-
-  const rejectMutation = useMutation({
-    mutationFn: () =>
-      api.transactions.reject(rejectTarget!.id, { reason: rejectReason.trim() }, newIdempotencyKey()),
-    onSuccess: (res) => {
-      invalidateFinancial(queryClient, accountId);
-      setFlashMessage(`Rejected entry #${res.transaction.id}.`);
-      setRejectTarget(null);
-      setRejectReason('');
-      setRejectError(null);
-    },
-    onError: (err) => {
-      setRejectError(err instanceof ApiError ? err.message : 'Could not reject entry.');
-    },
-  });
-
   const onQuickSubmit = (e: FormEvent) => {
     e.preventDefault();
     setQuickError(null);
@@ -179,15 +151,7 @@ export default function AccountDetailPage() {
     quickEntryMutation.mutate();
   };
 
-  const onRejectSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    setRejectError(null);
-    if (rejectReason.trim().length < 2) {
-      setRejectError('Please enter a short reason for rejection (at least 2 characters).');
-      return;
-    }
-    rejectMutation.mutate();
-  };
+
 
   if (ledgerQuery.isPending) {
     return (
@@ -211,7 +175,6 @@ export default function AccountDetailPage() {
   if (to) statementSearch.set('to', to);
   if (search.trim()) statementSearch.set('search', search.trim());
   const pendingNum = Number(account.pendingBalance);
-  const pendingSubCount = account.pendingSubmissionsCount ?? 0;
 
   return (
     <div className="space-y-6">
@@ -274,19 +237,19 @@ export default function AccountDetailPage() {
       {/* 4 Summary Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="border-l-4 border-l-emerald-600">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Deposit (+ Approved)</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Deposit (+)</div>
           <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-emerald-700">
             + {formatAmount(account.totalUserPaid, symbol)}
           </div>
-          <div className="mt-1 text-xs text-slate-500">Total approved deposits in this user’s ledger</div>
+          <div className="mt-1 text-xs text-slate-500">Total deposits in this user’s ledger</div>
         </Card>
 
         <Card className="border-l-4 border-l-rose-600">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Withdrawal (- Approved)</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Withdrawal (-)</div>
           <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-rose-700">
             - {formatAmount(account.totalAdminPaid, symbol)}
           </div>
-          <div className="mt-1 text-xs text-slate-500">Total approved withdrawals / payouts</div>
+          <div className="mt-1 text-xs text-slate-500">Total withdrawals / payouts</div>
         </Card>
 
         <Card className="border-l-4 border-l-indigo-600">
@@ -307,16 +270,10 @@ export default function AccountDetailPage() {
           </div>
         </Card>
 
-        <Card className="border-l-4 border-l-amber-500">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pending Review</div>
-          <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-amber-700">
-            {formatAmount(account.pendingSubmissionsAmount ?? '0.00', symbol)}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">
-            {pendingSubCount === 0
-              ? 'No Deposit/Withdrawal requests waiting'
-              : `${pendingSubCount} submitted ${pendingSubCount === 1 ? 'entry' : 'entries'} awaiting review`}
-          </div>
+        <Card className="border-l-4 border-l-blue-500">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Entries</div>
+          <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-blue-700">{account.entryCount}</div>
+          <div className="mt-1 text-xs text-slate-500">Deposits and withdrawals post immediately</div>
         </Card>
       </div>
 
@@ -461,47 +418,6 @@ export default function AccountDetailPage() {
         </Card>
       ) : null}
 
-      {/* Reject Modal */}
-      {rejectTarget ? (
-        <Card className="border-2 border-rose-500 bg-rose-50/40">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-slate-900">
-                Reject Entry #{rejectTarget.id} ({formatAmount(rejectTarget.amount, symbol)})
-              </h2>
-              <p className="text-xs text-slate-600">
-                Provide a reason so {account.name} can see why this entry was rejected.
-              </p>
-            </div>
-            <Button variant="ghost" onClick={() => setRejectTarget(null)}>
-              Cancel
-            </Button>
-          </div>
-          {rejectError ? (
-            <div className="mt-3">
-              <Alert tone="error">{rejectError}</Alert>
-            </div>
-          ) : null}
-          <form onSubmit={onRejectSubmit} className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
-            <div className="flex-1">
-              <Field label="Rejection Reason" required>
-                {(fid) => (
-                  <TextInput
-                    id={fid}
-                    placeholder="e.g. Incorrect bill amount / Duplicate submission"
-                    value={rejectReason}
-                    onChange={(e) => setRejectReason(e.target.value)}
-                  />
-                )}
-              </Field>
-            </div>
-            <Button type="submit" variant="danger" loading={rejectMutation.isPending}>
-              Confirm Reject
-            </Button>
-          </form>
-        </Card>
-      ) : null}
-
       {/* Filters + 1-Click Month Filter Buttons */}
       <Card>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -618,7 +534,7 @@ export default function AccountDetailPage() {
       <Card padded={false} className="overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-xs text-slate-600">
           <span>
-            Showing entries in <strong>chronological order (oldest first)</strong> so the running balance reads top-to-bottom.
+            Showing entries in <strong>chronological order (oldest first)</strong>.
           </span>
           <span>
             Net Balance: <strong className="font-mono">{formatAmount(account.pendingBalance, symbol)}</strong>
@@ -634,122 +550,7 @@ export default function AccountDetailPage() {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">Date</th>
-                    <th className="px-4 py-3">Type</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Option / Remark</th>
-                    <th className="px-4 py-3 text-right">Deposit (+)</th>
-                    <th className="px-4 py-3 text-right">Withdraw (−)</th>
-                    <th className="px-4 py-3 text-right">Net Balance</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 bg-white">
-                  {entries.map((e) => {
-                    const status = e.approvalStatus ?? 'APPROVED';
-                    return (
-                      <tr
-                        key={e.id}
-                        className={
-                          e.isReversed || status === 'REJECTED'
-                            ? 'bg-slate-50 text-slate-400'
-                            : status === 'PENDING'
-                              ? 'bg-amber-50/30'
-                              : 'hover:bg-slate-50/60'
-                        }
-                      >
-                        <td className="whitespace-nowrap px-4 py-3 text-slate-700">{formatDate(e.entryDate)}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            {e.isReversal ? (
-                              <Badge tone="slate">Reversal</Badge>
-                            ) : e.direction === 'INCREASE' ? (
-                              <Badge tone="indigo">Credit (+)</Badge>
-                            ) : (
-                              <Badge tone="emerald">Settled (−)</Badge>
-                            )}
-                            <span className="text-xs text-slate-400">#{e.id}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          {e.isReversed ? (
-                            <Badge tone="slate">Reversed by #{e.reversedById}</Badge>
-                          ) : status === 'PENDING' ? (
-                            <Badge tone="amber">Pending Approval</Badge>
-                          ) : status === 'REJECTED' ? (
-                            <div>
-                              <Badge tone="rose">Rejected</Badge>
-                              {e.rejectionReason ? (
-                                <div className="mt-1 text-xs text-rose-600">Reason: {e.rejectionReason}</div>
-                              ) : null}
-                            </div>
-                          ) : (
-                            <Badge tone="emerald">Approved</Badge>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-slate-600">
-                          <div>{e.notes || e.description}</div>
-                          <div className="text-xs text-slate-400">
-                            {e.paymentMethodLabel ? `${e.paymentMethodLabel}` : ''}
-                            {e.referenceNumber ? ` · Ref: ${e.referenceNumber}` : ''}
-                          </div>
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-right font-mono text-indigo-700">
-                          {e.direction === 'INCREASE' ? `+ ${formatAmount(e.amount, symbol)}` : '—'}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-right font-mono text-emerald-700">
-                          {e.direction === 'DECREASE' ? `− ${formatAmount(e.amount, symbol)}` : '—'}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-right font-mono font-semibold text-slate-900">
-                          {formatAmount(e.runningBalance, symbol)}
-                          {status !== 'APPROVED' ? (
-                            <div className="text-[11px] font-normal text-slate-400">
-                              {status === 'PENDING' ? 'Awaiting approval' : 'Not counted'}
-                            </div>
-                          ) : null}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-right">
-                          {status === 'PENDING' ? (
-                            <div className="inline-flex items-center gap-1.5">
-                              <Button
-                                className="!py-1 !px-2 text-xs"
-                                loading={approveMutation.isPending}
-                                onClick={() => approveMutation.mutate(e.id)}
-                              >
-                                ✓ Approve
-                              </Button>
-                              <Button
-                                variant="danger"
-                                className="!py-1 !px-2 text-xs"
-                                onClick={() => {
-                                  setRejectTarget(e);
-                                  setRejectReason('');
-                                  setRejectError(null);
-                                }}
-                              >
-                                ✕ Reject
-                              </Button>
-                            </div>
-                          ) : !e.isReversal && !e.isReversed && status === 'APPROVED' && account.isActive ? (
-                            <button
-                              type="button"
-                              onClick={() => setReversing(e)}
-                              className="text-xs font-medium text-slate-600 hover:text-rose-700"
-                            >
-                              Reverse
-                            </button>
-                          ) : null}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <ManagedEntries entries={entries} symbol={symbol} accountId={account.id} disabled={!account.isActive} />
             <Pagination
               page={pagination.page}
               totalPages={pagination.totalPages}
@@ -760,12 +561,7 @@ export default function AccountDetailPage() {
         )}
       </Card>
 
-      <ReverseDialog
-        entry={reversing}
-        accountId={account.id}
-        open={Boolean(reversing)}
-        onClose={() => setReversing(null)}
-      />
+
 
       <Dialog
         open={confirmDeactivate}

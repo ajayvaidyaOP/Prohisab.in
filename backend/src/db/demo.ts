@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { Lite4MariaDB } from 'lite4mariadb';
 import { LiteMariaDbAdapterFactory } from './lite-adapter.ts';
-import { BASELINE, NODE_SUPPORT, migrationSql } from '../scripts/migrate.ts';
+import { BASELINE, NODE_SUPPORT, DIRECT_ENTRIES, migrationSql } from '../scripts/migrate.ts';
 
 /** Same MySQL tables/SQL as production, hosted in MariaDB WASM for local previews. */
 export async function createDemo() {
@@ -25,6 +25,9 @@ export async function createDemo() {
         const support = migrationSql(NODE_SUPPORT);
         database.execMulti(support.slice(support.indexOf('CREATE TABLE')));
       }
+    }
+    if (!database.query("SHOW COLUMNS FROM transactions LIKE 'edited_at'").length) {
+      database.execMulti(migrationSql(DIRECT_ENTRIES));
     }
     return { adapter: new LiteMariaDbAdapterFactory(database), database };
   } catch (error) {
