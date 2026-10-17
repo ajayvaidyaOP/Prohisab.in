@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ArrowDownLeft, ArrowUpRight, Landmark, ShieldCheck } from 'lucide-react';
 import { ApiError, api } from '../lib/api';
 import { ME_KEY, useMe } from '../lib/auth';
 import { Alert, Button, Field, TextInput } from '../components/ui';
@@ -78,106 +79,156 @@ export default function LoginPage() {
     : null;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-indigo-50 to-slate-50 p-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-6 text-center">
-          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600 text-lg font-bold text-white">L</span>
-          <h1 className="mt-4 text-2xl font-semibold text-slate-900">Deposit &amp; Withdrawal CRM</h1>
-          <p className="mt-1 text-sm text-slate-600">Sign in as Admin or Staff to view your ledger and add entries.</p>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-          <div className="mb-5 inline-flex w-full rounded-lg border border-slate-200 bg-slate-100 p-1 text-sm">
-            <button
-              type="button"
-              onClick={() => setMode('admin')}
-              className={`flex-1 rounded-md px-3 py-1.5 font-medium transition-colors ${mode === 'admin' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600'}`}
-            >
-              Admin Login
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('staff')}
-              className={`flex-1 rounded-md px-3 py-1.5 font-medium transition-colors ${mode === 'staff' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600'}`}
-            >
-              Staff PIN Login
-            </button>
+    <main className="login-page">
+      <div className="login-shell">
+        <section className="login-art" aria-label="Deposit and withdrawal ledger workspace">
+          <div className="login-brand">
+            <span className="login-brand-icon"><Landmark className="h-5 w-5" aria-hidden="true" /></span>
+            <span>
+              <span className="login-brand-name">deposit.in</span>
+              <span className="login-brand-caption">LEDGER WORKSPACE</span>
+            </span>
           </div>
 
-          {expired && <Alert tone="warning">Your session ended. Please sign in again.</Alert>}
-          {error && <Alert tone="error">{error.message}</Alert>}
-          {error?.code === 'SESSION_COOKIE_BLOCKED' && (
-            <a href={window.location.href} target="_blank" rel="noopener noreferrer"
-              className="mb-4 inline-block text-sm font-medium text-indigo-700 underline">
-              Open website in a new tab
-            </a>
-          )}
+          <div className="login-story-copy">
+            <p className="login-overline"><span aria-hidden="true" />A clearer way to keep count</p>
+            <h1>Every entry.<br /><em>In its right place.</em></h1>
+            <p className="login-story-description">
+              Deposits, withdrawals, and the details behind every move — together in one calm, reliable workspace.
+            </p>
+          </div>
 
-          {mode === 'admin' ? (
-            <form className="space-y-5" onSubmit={submitAdmin} noValidate>
-              <Field label="Username" required error={errors.username}>
-                {(id, describedBy) => (
-                  <TextInput
-                    id={id}
-                    name="username"
-                    autoComplete="username"
-                    autoFocus
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    aria-describedby={describedBy}
-                    invalid={!!errors.username}
-                    maxLength={64}
-                  />
-                )}
-              </Field>
-              <Field label="Password" required error={errors.password}>
-                {(id, describedBy) => (
-                  <TextInput
-                    id={id}
-                    name="password"
-                    type="password"
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    aria-describedby={describedBy}
-                    invalid={!!errors.password}
-                    maxLength={200}
-                  />
-                )}
-              </Field>
-              <Button type="submit" className="w-full" loading={login.isPending}>
-                Login
-              </Button>
-            </form>
-          ) : (
-            <form className="space-y-5" onSubmit={submitPin} noValidate>
-              <Field label="4-digit PIN" required error={errors.pin}>
-                {(id, describedBy) => (
-                  <TextInput
-                    id={id}
-                    name="pin"
-                    type="password"
-                    inputMode="numeric"
-                    autoComplete="current-password"
-                    autoFocus
-                    value={pin}
-                    onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                    aria-describedby={describedBy}
-                    invalid={!!errors.pin}
-                    maxLength={4}
-                  />
-                )}
-              </Field>
-              <Button type="submit" className="w-full" loading={pinLogin.isPending}>
-                Login
-              </Button>
-              <p className="text-center text-xs text-slate-500">Your admin provides your PIN and book access.</p>
-            </form>
-          )}
-        </div>
-        <p className="mt-6 text-center text-xs text-slate-500">
-          Users can sign in with the PIN created by the Administrator.
-        </p>
+          <div className="login-visual" aria-hidden="true">
+            <div className="login-visual-head">
+              <span>Ledger overview</span>
+              <span className="login-live-badge"><i /> LIVE LEDGER</span>
+            </div>
+            <div className="login-chart">
+              {[34, 48, 41, 67, 54, 78, 60, 88, 68, 96, 73, 84].map((height, index) => (
+                <span key={index} className={index % 3 === 1 ? 'login-chart-bar login-chart-bar-soft' : 'login-chart-bar'} style={{ height: `${height}%` }} />
+              ))}
+            </div>
+            <div className="login-visual-legend">
+              <span><i className="login-legend-dot login-legend-dot-deposit" /> Deposits</span>
+              <span><i className="login-legend-dot login-legend-dot-withdrawal" /> Withdrawals</span>
+            </div>
+            <div className="login-visual-footer">
+              <span><ShieldCheck className="h-4 w-4" /> Private, reliable records</span>
+              <span className="login-visual-arrows"><ArrowDownLeft className="h-4 w-4" /><ArrowUpRight className="h-4 w-4" /></span>
+            </div>
+          </div>
+          <div className="login-art-orb login-art-orb-one" aria-hidden="true" />
+          <div className="login-art-orb login-art-orb-two" aria-hidden="true" />
+        </section>
+
+        <section className="login-form-panel" aria-labelledby="login-heading">
+          <div className="login-form-inner">
+            <div className="login-mobile-brand">
+              <span className="login-brand-icon"><Landmark className="h-5 w-5" aria-hidden="true" /></span>
+              <span className="login-brand-name">deposit.in</span>
+            </div>
+            <div className="login-heading-block">
+              <p className="login-eyebrow">ACCOUNT ACCESS</p>
+              <h2 id="login-heading">Welcome back</h2>
+              <p>Sign in to continue to your ledger.</p>
+            </div>
+
+            <div className="login-form-card">
+              <div className="login-tabs" aria-label="Choose a sign-in method">
+                <button
+                  type="button"
+                  aria-pressed={mode === 'admin'}
+                  onClick={() => setMode('admin')}
+                  className={`login-tab ${mode === 'admin' ? 'login-tab-active' : ''}`}
+                >
+                  Admin Login
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={mode === 'staff'}
+                  onClick={() => setMode('staff')}
+                  className={`login-tab ${mode === 'staff' ? 'login-tab-active' : ''}`}
+                >
+                  Staff PIN Login
+                </button>
+              </div>
+
+              {expired && <Alert tone="warning">Your session ended. Please sign in again.</Alert>}
+              {error && <Alert tone="error">{error.message}</Alert>}
+              {error?.code === 'SESSION_COOKIE_BLOCKED' && (
+                <a href={window.location.href} target="_blank" rel="noopener noreferrer" className="login-new-tab-link">
+                  Open website in a new tab
+                </a>
+              )}
+
+              {mode === 'admin' ? (
+                <form className="login-form space-y-5" onSubmit={submitAdmin} noValidate>
+                  <Field label="Username" required error={errors.username}>
+                    {(id, describedBy) => (
+                      <TextInput
+                        id={id}
+                        name="username"
+                        autoComplete="username"
+                        autoFocus
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        aria-describedby={describedBy}
+                        invalid={!!errors.username}
+                        maxLength={64}
+                      />
+                    )}
+                  </Field>
+                  <Field label="Password" required error={errors.password}>
+                    {(id, describedBy) => (
+                      <TextInput
+                        id={id}
+                        name="password"
+                        type="password"
+                        autoComplete="current-password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        aria-describedby={describedBy}
+                        invalid={!!errors.password}
+                        maxLength={200}
+                      />
+                    )}
+                  </Field>
+                  <Button type="submit" className="w-full" loading={login.isPending}>
+                    Login
+                  </Button>
+                </form>
+              ) : (
+                <form className="login-form space-y-5" onSubmit={submitPin} noValidate>
+                  <Field label="4-digit PIN" required error={errors.pin}>
+                    {(id, describedBy) => (
+                      <TextInput
+                        id={id}
+                        name="pin"
+                        type="password"
+                        inputMode="numeric"
+                        autoComplete="current-password"
+                        autoFocus
+                        value={pin}
+                        onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                        aria-describedby={describedBy}
+                        invalid={!!errors.pin}
+                        maxLength={4}
+                      />
+                    )}
+                  </Field>
+                  <Button type="submit" className="w-full" loading={pinLogin.isPending}>
+                    Login
+                  </Button>
+                  <p className="login-help-text">Your administrator provides your PIN and book access.</p>
+                </form>
+              )}
+            </div>
+
+            <p className="login-security-note"><ShieldCheck className="h-4 w-4" aria-hidden="true" /> Secure, private access for your team</p>
+          </div>
+        </section>
       </div>
-    </div>
+      <p className="login-copyright">DEPOSIT.IN <span>·</span> DEPOSITS, WITHDRAWALS, IN BALANCE.</p>
+    </main>
   );
 }

@@ -8,12 +8,12 @@ import type { BalanceStatus } from '../lib/types';
 type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
 const buttonBase =
-  'inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60';
+  'ui-button inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60';
 const buttonVariants: Record<ButtonVariant, string> = {
-  primary: 'bg-indigo-600 text-white hover:bg-indigo-700',
-  secondary: 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50',
-  danger: 'bg-rose-600 text-white hover:bg-rose-700',
-  ghost: 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+  primary: 'button-primary bg-indigo-600 text-white hover:bg-indigo-700',
+  secondary: 'button-secondary border border-slate-300 bg-white text-slate-700 hover:bg-slate-50',
+  danger: 'button-danger bg-rose-600 text-white hover:bg-rose-700',
+  ghost: 'button-ghost text-slate-600 hover:bg-slate-100 hover:text-slate-900',
 };
 
 export function Button({
@@ -39,7 +39,7 @@ export function ButtonLink({ variant = 'secondary', className = '', ...rest }: L
 /* ---------- Form fields ---------- */
 
 const inputClass =
-  'block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:bg-slate-100 disabled:text-slate-500';
+  'ui-input block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:bg-slate-100 disabled:text-slate-500';
 
 interface FieldProps {
   label: string;
@@ -54,7 +54,7 @@ export function Field({ label, error, hint, required, children }: FieldProps) {
   const hintId = hint || error ? `${id}-desc` : undefined;
   return (
     <div className="space-y-1.5">
-      <label htmlFor={id} className="block text-sm font-medium text-slate-700">
+      <label htmlFor={id} className="field-label block text-sm font-medium text-slate-700">
         {label}
         {required && <span className="ml-0.5 text-rose-600" aria-hidden="true">*</span>}
       </label>
@@ -119,17 +119,18 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
 /* ---------- Layout blocks ---------- */
 
 export function Card({ children, className = '', padded = true }: { children: ReactNode; className?: string; padded?: boolean }) {
-  return <section className={`min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm ${padded ? 'p-4 sm:p-6' : ''} ${className}`}>{children}</section>;
+  return <section className={`ui-card min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm ${padded ? 'p-4 sm:p-6' : ''} ${className}`}>{children}</section>;
 }
 
-export function PageHeader({ title, description, actions }: { title: string; description?: ReactNode; actions?: ReactNode }) {
+export function PageHeader({ title, description, actions, eyebrow }: { title: string; description?: ReactNode; actions?: ReactNode; eyebrow?: string }) {
   return (
-    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div className="page-heading mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0">
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">{title}</h1>
-        {description && <p className="mt-1 text-sm text-slate-600">{description}</p>}
+        {eyebrow && <p className="page-eyebrow">{eyebrow}</p>}
+        <h1 className="page-title text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">{title}</h1>
+        {description && <p className="page-description mt-1 text-sm text-slate-600">{description}</p>}
       </div>
-      {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
+      {actions && <div className="page-actions flex flex-wrap gap-2">{actions}</div>}
     </div>
   );
 }
@@ -142,7 +143,7 @@ export function StatCard({ label, value, hint, tone = 'default' }: { label: stri
     info: 'text-indigo-700',
   }[tone];
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="ui-stat-card rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
       <p className={`mt-2 break-words text-xl font-semibold tabular-nums sm:text-2xl ${toneClass}`}>{value}</p>
       {hint && <div className="mt-1 text-xs text-slate-500">{hint}</div>}
@@ -181,7 +182,7 @@ export function Alert({ tone = 'info', title, children }: { tone?: 'info' | 'suc
   }[tone];
   const Icon = tone === 'success' ? CheckCircle2 : tone === 'error' || tone === 'warning' ? AlertTriangle : Info;
   return (
-    <div role={tone === 'error' ? 'alert' : 'status'} className={`flex gap-3 rounded-lg border p-3 text-sm ${styles}`}>
+    <div role={tone === 'error' ? 'alert' : 'status'} className={`ui-alert flex gap-3 rounded-lg border p-3 text-sm ${styles}`}>
       <Icon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
       <div className="min-w-0 space-y-0.5">
         {title && <p className="font-medium">{title}</p>}
@@ -220,7 +221,7 @@ export function SkeletonRows({ rows = 5, cols = 4 }: { rows?: number; cols?: num
 
 export function EmptyState({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center">
+    <div className="ui-empty-state flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center">
       <p className="text-base font-semibold text-slate-900">{title}</p>
       {description && <p className="mt-1 max-w-md text-sm text-slate-600">{description}</p>}
       {action && <div className="mt-4">{action}</div>}
@@ -295,8 +296,8 @@ export function Dialog({ open, title, onClose, children, footer }: { open: boole
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-0 sm:items-center sm:p-4" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl sm:rounded-2xl sm:p-6">
+    <div className="ui-dialog-overlay fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-0 sm:items-center sm:p-4" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} className="ui-dialog max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl sm:rounded-2xl sm:p-6">
         <div className="mb-4 flex items-start justify-between gap-4">
           <h2 id={titleId} className="text-lg font-semibold text-slate-900">
             {title}

@@ -56,7 +56,7 @@ export default function BooksPage() {
         {books.data.length === 0 ? (
           <div className="p-6"><EmptyState title="No books yet" description="Add your first book above." /></div>
         ) : (
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
+          <table className="modern-table min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3 text-left">Book ID</th>

@@ -15,7 +15,7 @@ export function EntryTable<T extends EntryRow>({ entries, symbol = '₹', disabl
   onEdit: (entry: T) => void; onDelete: (entry: T) => void;
 }) {
   return <div className="overflow-x-auto">
-    <table className="min-w-full text-left text-base text-[#102c50]">
+    <table className="ledger-table min-w-full text-left text-base text-[#102c50]">
       <thead className="border-b border-indigo-100 bg-[#f3f6ff] text-sm font-semibold text-[#4d6488]">
         <tr>{['Time (IST)', 'Book', 'Staff', 'Customer ID', 'Type', 'Amount', 'Bank account', 'Edit status', 'Action'].map((label) =>
           <th key={label} scope="col" className="whitespace-nowrap px-4 py-4">{label}</th>)}</tr>
@@ -40,10 +40,10 @@ export function EntryTable<T extends EntryRow>({ entries, symbol = '₹', disabl
             <div className="flex items-center gap-2">
               <button type="button" disabled={disabled || !entryCanEdit(entry)} onClick={() => onEdit(entry)}
                 title={!entryCanEdit(entry) ? 'Editing is locked for this entry' : undefined}
-                className="rounded-lg bg-blue-600 px-3.5 py-3 font-semibold text-white hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-40">Edit</button>
+                className="entry-action entry-action-edit rounded-lg bg-blue-600 px-3.5 py-3 font-semibold text-white hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-40">Edit</button>
               <button type="button" disabled={disabled || !entryCanDelete(entry)} onClick={() => onDelete(entry)}
                 title={!entryCanDelete(entry) ? 'Deletion is locked for this entry' : undefined}
-                className="rounded-xl bg-[#d93658] px-3 py-2 font-semibold text-white hover:bg-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600 disabled:cursor-not-allowed disabled:opacity-40">Delete</button>
+                className="entry-action entry-action-delete rounded-xl bg-[#d93658] px-3 py-2 font-semibold text-white hover:bg-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600 disabled:cursor-not-allowed disabled:opacity-40">Delete</button>
             </div>
           </td>
         </tr>)}

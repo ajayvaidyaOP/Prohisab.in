@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ClipboardList, FileDown, Scale, TrendingDown, TrendingUp } from 'lucide-react';
+import { ClipboardList, FileDown, Scale, SlidersHorizontal, TrendingDown, TrendingUp } from 'lucide-react';
 import { api } from '../lib/api';
 import { formatAmount, formatDate } from '../lib/format';
 import type { TransactionFilters } from '../lib/types';
@@ -76,11 +76,15 @@ export default function DashboardPage() {
   const staffLabel = applied.accountId ? users.data?.items.find((user) => String(user.id) === applied.accountId)?.name ?? 'Selected staff' : 'All staff';
 
   return <div className="space-y-6">
-    <PageHeader title="Today's Dashboard"
+    <PageHeader eyebrow="DAILY OVERVIEW" title="Today's Dashboard"
       description={`${formatDate(today)} · ${timezone} · Today's deposits, withdrawals and entries in one place.`}
       actions={<ButtonLink to="/transactions" variant="secondary">View other dates →</ButtonLink>} />
 
-    <Card>
+    <Card className="dashboard-filter-card">
+      <div className="dashboard-filter-heading">
+        <span className="dashboard-filter-icon"><SlidersHorizontal className="h-4 w-4" aria-hidden="true" /></span>
+        <div><h2>Refine today’s view</h2><p>Filter by book or staff member to focus the ledger.</p></div>
+      </div>
       <form onSubmit={apply} className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
           <Field label="Book">{(id) => <SelectInput id={id} value={draft.bookId} onChange={(event) => setDraft((prev) => ({ ...prev, bookId: event.target.value }))}>
@@ -107,21 +111,24 @@ export default function DashboardPage() {
 
     {entries.isError ? <ErrorState message={entries.error.message} onRetry={() => void entries.refetch()} />
       : entries.isPending ? <Card><SkeletonRows rows={4} cols={4} /></Card> : <>
-        <section aria-label="Today's totals" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {[
-            { label: 'Today’s deposits (+)', value: formatAmount(entries.data.summary.deposits, symbol), icon: TrendingUp, tone: 'border-emerald-200 bg-emerald-50/60 text-emerald-700' },
-            { label: 'Today’s withdrawals (-)', value: formatAmount(entries.data.summary.withdrawals, symbol), icon: TrendingDown, tone: 'border-rose-200 bg-rose-50/60 text-rose-700' },
-            { label: 'Today’s net', value: formatAmount(entries.data.summary.net, symbol), icon: Scale, tone: 'border-indigo-200 bg-indigo-50/60 text-indigo-700' },
-            { label: 'Today’s entries', value: entries.data.pagination.total.toLocaleString('en-IN'), icon: ClipboardList, tone: 'border-blue-200 bg-blue-50/60 text-blue-700' },
-          ].map(({ label, value, icon: Icon, tone }) => <Card key={label} className={tone}>
-            <div className="flex items-center justify-between gap-3"><p className="text-xs font-semibold uppercase tracking-wide">{label}</p><Icon className="h-5 w-5 shrink-0" aria-hidden="true" /></div>
-            <p className="mt-3 break-words text-2xl font-bold tabular-nums">{value}</p>
-          </Card>)}
+        <section aria-label="Today's totals" className="space-y-3">
+          <div className="dashboard-section-heading"><div><h2>Today at a glance</h2><p>A live snapshot of your selected ledger.</p></div></div>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              { label: 'Today’s deposits (+)', value: formatAmount(entries.data.summary.deposits, symbol), icon: TrendingUp, tone: 'emerald' },
+              { label: 'Today’s withdrawals (-)', value: formatAmount(entries.data.summary.withdrawals, symbol), icon: TrendingDown, tone: 'rose' },
+              { label: 'Today’s net', value: formatAmount(entries.data.summary.net, symbol), icon: Scale, tone: 'indigo' },
+              { label: 'Today’s entries', value: entries.data.pagination.total.toLocaleString('en-IN'), icon: ClipboardList, tone: 'blue' },
+            ].map(({ label, value, icon: Icon, tone }) => <Card key={label} className={`dashboard-stat-card dashboard-stat--${tone}`}>
+              <div className="dashboard-stat-head"><p className="dashboard-stat-label">{label}</p><span className="dashboard-stat-icon"><Icon className="h-5 w-5 shrink-0" aria-hidden="true" /></span></div>
+              <p className="dashboard-stat-value break-words tabular-nums">{value}</p>
+            </Card>)}
+          </div>
         </section>
-        <Card padded={false} className="overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
-            <div><h2 className="font-semibold text-slate-900">Today's Entries</h2>
-              <p className="mt-1 text-xs text-slate-500">{formatDate(today)} · {bookLabel} · {staffLabel}</p></div>
+        <Card padded={false} className="dashboard-entries-card overflow-hidden">
+          <div className="dashboard-entries-heading flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+            <div><h2>Today's Entries</h2>
+              <p className="mt-1 text-xs">{formatDate(today)} · {bookLabel} · {staffLabel}</p></div>
             <Button variant="secondary" onClick={() => void downloadPdf()} loading={downloading} disabled={entries.isFetching}><FileDown className="h-4 w-4" /> Today’s PDF</Button>
           </div>
           {pdfError && <div className="px-5 pt-4"><Alert tone="error">{pdfError}</Alert></div>}
