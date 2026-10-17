@@ -363,37 +363,73 @@ export function buildAllUsersSummaryPdf(input: AllUsersSummaryPdfInput): Buffer 
 }
 
 export interface MultiReportPdfInput {
+  comparisons?: Array<{ title: string; rows: Array<{ label: string; deposits: string; withdrawals: string;
+    net: string; totalEntries: number; pendingEntries: number }> }>;
+  title?: string;
+  summaryLine?: string;
+  filterLine?: string;
   businessName: string;
   generatedDate: string;
   fromDate: string | null;
   toDate: string | null;
   rows: Array<{ entryDate: string; staff: string; book: string; type: string;
-    amount: string; status: string; description: string }>;
+    amount: string; status: string; description: string; customerId?: string; bankDetails?: string }>;
 }
 
 /** A paginated landscape history PDF with the same filters/rows as the on-screen report. */
 export function buildMultiReportPdf(input: MultiReportPdfInput): Buffer {
-  const width = 841.89, height = 595.28, perPage = 24;
+  const width = 841.89, height = 595.28, perPage = input.summaryLine ? 22 : 24;
+  const offset = input.summaryLine ? 30 : 0;
   const pageCount = Math.max(1, Math.ceil(input.rows.length / perPage));
   const streams: string[] = [];
   const put = (x: number, y: number, value: string, size = 8, bold = false) =>
     `BT /${bold ? 'F2' : 'F1'} ${size} Tf ${x} ${y} Td (${pdfEscape(value)}) Tj ET`;
+  // Summary sections precede the full history; each section paginates without truncating staff.
+  for (const section of input.comparisons ?? []) {
+    const pages = Math.max(1, Math.ceil(section.rows.length / 22));
+    for (let page = 0; page < pages; page++) {
+      const ops = ['0.18 0.22 0.56 rg 25 530 792 43 re f', '1 1 1 rg',
+        put(37, 551, truncate(input.businessName.toUpperCase(), 50), 14, true),
+        put(37, 536, section.title, 10, true), '0.15 0.19 0.27 rg',
+        put(27, 508, `Period: ${input.fromDate || 'Beginning'} to ${input.toDate || 'Latest'} | Generated: ${input.generatedDate}`, 9),
+        put(27, 493, input.summaryLine ?? '', 9, true),
+        put(27, 478, truncate(input.filterLine ?? '', 160), 8),
+        '0.93 0.95 0.98 rg 25 442 792 22 re f', '0.15 0.19 0.27 rg'];
+      for (const [x, label] of [[30, 'NAME'], [252, 'COLLECTION (+)'], [377, 'WITHDRAWALS (-)'],
+        [505, 'PERIOD NET'], [637, 'ENTRIES'], [725, 'PENDING']] as Array<[number, string]>) {
+        ops.push(put(x, 450, label, 8, true));
+      }
+      const rows = section.rows.slice(page * 22, (page + 1) * 22);
+      if (!rows.length) ops.push(put(30, 420, 'No matching entries.', 10));
+      rows.forEach((row, index) => {
+        const y = 422 - index * 17;
+        if (index % 2) ops.push(`0.97 0.98 1 rg 25 ${y - 6} 792 17 re f 0.15 0.19 0.27 rg`);
+        ops.push(put(30, y, truncate(row.label, 38), 8), put(252, y, row.deposits, 8),
+          put(377, y, row.withdrawals, 8), put(505, y, row.net, 8, true),
+          put(637, y, String(row.totalEntries), 8), put(725, y, String(row.pendingEntries), 8));
+      });
+      ops.push(put(27, 22, `${section.title} | Page ${page + 1} of ${pages} | Approved amounts only; period net is not an all-time balance.`, 8));
+      streams.push(ops.join('\n'));
+    }
+  }
   for (let page = 0; page < pageCount; page++) {
     const ops: string[] = [];
     ops.push('0.18 0.22 0.56 rg 25 530 792 43 re f', '1 1 1 rg');
     ops.push(put(37, 551, truncate(input.businessName.toUpperCase(), 50), 14, true));
-    ops.push(put(37, 536, 'MULTI-USER HISTORY REPORT', 9, true));
+    ops.push(put(37, 536, input.title ?? 'MULTI-USER HISTORY REPORT', 9, true));
     ops.push('0.15 0.19 0.27 rg');
     ops.push(put(27, 508, `Period: ${input.fromDate || 'Beginning'} to ${input.toDate || 'Latest'}`, 9));
     ops.push(put(27, 493, `Generated: ${input.generatedDate}    Entries: ${input.rows.length}    Page ${page + 1} of ${pageCount}`, 9));
-    ops.push('0.93 0.95 0.98 rg 25 462 792 20 re f', '0.15 0.19 0.27 rg');
+    if (input.summaryLine) ops.push(put(27, 478, input.summaryLine, 9, true));
+    if (input.filterLine) ops.push(put(27, 464, truncate(input.filterLine, 160), 8));
+    ops.push(`0.93 0.95 0.98 rg 25 ${462 - offset} 792 20 re f`, '0.15 0.19 0.27 rg');
     const columns: Array<[number, string]> = [[30, 'DATE'], [103, 'STAFF'], [209, 'BOOK'], [294, 'TYPE'],
-      [376, 'AMOUNT'], [453, 'STATUS'], [524, 'DESCRIPTION']];
-    for (const [x, label] of columns) ops.push(put(x, 469, label, 8, true));
+      [376, 'AMOUNT'], [453, 'STATUS'], ...(input.summaryLine ? [[524, 'CUSTOMER ID'], [628, 'BANK ACCOUNT']] as Array<[number, string]> : [[524, 'DESCRIPTION']] as Array<[number, string]>)];
+    for (const [x, label] of columns) ops.push(put(x, 469 - offset, label, 8, true));
     const rows = input.rows.slice(page * perPage, (page + 1) * perPage);
-    if (!rows.length) ops.push(put(30, 440, 'No entries match these filters.', 10));
+    if (!rows.length) ops.push(put(30, 440 - offset, 'No entries match these filters.', 10));
     for (const [i, row] of rows.entries()) {
-      const y = 444 - i * 17;
+      const y = 444 - offset - i * 17;
       if (i % 2) ops.push(`0.97 0.98 1 rg 25 ${y - 6} 792 17 re f 0.15 0.19 0.27 rg`);
       ops.push(put(30, y, row.entryDate, 8));
       ops.push(put(103, y, truncate(row.staff, 19), 8));
@@ -401,7 +437,10 @@ export function buildMultiReportPdf(input: MultiReportPdfInput): Buffer {
       ops.push(put(294, y, truncate(row.type, 14), 8));
       ops.push(put(376, y, row.amount, 8, true));
       ops.push(put(453, y, row.status, 7.5));
-      ops.push(put(524, y, truncate(row.description, 46), 8));
+      if (input.summaryLine) {
+        ops.push(put(524, y, truncate(row.customerId ?? '-', 18), 8));
+        ops.push(put(628, y, truncate(row.bankDetails ?? '-', 33), 8));
+      } else ops.push(put(524, y, truncate(row.description, 46), 8));
     }
     ops.push('0.4 0.45 0.53 rg', put(27, 22, `${input.businessName} — Deposit & Withdrawal History`, 8));
     streams.push(ops.join('\n'));

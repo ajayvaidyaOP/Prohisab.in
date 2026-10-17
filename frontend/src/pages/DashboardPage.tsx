@@ -38,13 +38,13 @@ export default function DashboardPage() {
   const settings = useSettings();
   const [pdfFrom, setPdfFrom] = useState('');
   const [pdfTo, setPdfTo] = useState('');
-  const [pdfBookId] = useState('');
+  const [pdfBookId, setPdfBookId] = useState('');
   const [pdfUserId, setPdfUserId] = useState('');
   const [appliedFilters, setAppliedFilters] = useState<DashboardFilter>({});
   const [filterInitialized, setFilterInitialized] = useState(false);
 
   useEffect(() => {
-    if (!settings.data?.today) return;
+    if (filterInitialized || !settings.data?.today) return;
     setPdfFrom(settings.data.today);
     setPdfTo(settings.data.today);
     setAppliedFilters({ from: settings.data.today, to: settings.data.today });
@@ -54,6 +54,7 @@ export default function DashboardPage() {
   const dashboardQuery = useQuery({
     queryKey: ['dashboard', 'filtered', appliedFilters],
     queryFn: () => api.dashboard(appliedFilters),
+    enabled: filterInitialized,
   });
   const { data, isPending, isError, error, refetch } = dashboardQuery;
   const filterUsersQuery = useQuery({
@@ -310,18 +311,18 @@ export default function DashboardPage() {
       <Card padded={false} className="border-slate-200 bg-white p-4 sm:p-5">
         <div className="mb-4">
           <h2 className="text-sm font-semibold text-slate-900">Report filters</h2>
-          <p className="mt-0.5 text-xs text-slate-500">Choose a user, then apply to refresh the dashboard totals and PDF report.</p>
+          <p className="mt-0.5 text-xs text-slate-500">Choose a date range, book and user, then apply to view collection and refresh the report.</p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Field label="From Date">
-            {(id) => <TextInput id={id} type="date" value={pdfFrom} max={pdfTo || undefined} disabled />}
+            {(id) => <TextInput id={id} type="date" value={pdfFrom} onChange={(e) => setPdfFrom(e.target.value)} max={pdfTo || undefined} />}
           </Field>
           <Field label="To Date">
-            {(id) => <TextInput id={id} type="date" value={pdfTo} min={pdfFrom || undefined} disabled />}
+            {(id) => <TextInput id={id} type="date" value={pdfTo} onChange={(e) => setPdfTo(e.target.value)} min={pdfFrom || undefined} />}
           </Field>
           <Field label="Book">
             {(id) => (
-              <SelectInput id={id} value={pdfBookId} disabled>
+              <SelectInput id={id} value={pdfBookId} onChange={(e) => setPdfBookId(e.target.value)}>
                 <option value="">All books</option>
                 {(booksQuery.data ?? []).map((book) => (
                   <option key={book.id} value={book.id}>{book.name}{book.status === 'ARCHIVED' ? ' (Archived)' : ''}</option>
@@ -446,6 +447,58 @@ export default function DashboardPage() {
           </div>
         </div>
       </section>
+
+      <Card padded={false} className="overflow-hidden">
+        <div className="border-b border-slate-200 px-5 py-4">
+          <h2 className="text-base font-semibold text-slate-900">Date-wise &amp; Book-wise Collection</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            {appliedFilters.from ? formatDate(appliedFilters.from) : 'All dates'}
+            {' – '}{appliedFilters.to ? formatDate(appliedFilters.to) : 'Present'}
+            {' · '}{appliedFilters.bookId ? booksQuery.data?.find((book) => book.id === appliedFilters.bookId)?.name ?? 'Selected book' : 'All books'}
+            {' · '}{appliedFilters.userId ? filterUsersQuery.data?.items.find((user) => user.id === appliedFilters.userId)?.name ?? 'Selected user' : 'All users'}
+            {' · Approved entries only. Collection = deposits (+).'}
+          </p>
+        </div>
+        {data.collectionBreakdown.length === 0 ? (
+          <EmptyState title="No collection for these filters" description="No approved entries were found. Try another date range, book or user." />
+        ) : (
+          <div className="max-h-[32rem] overflow-auto">
+            <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <thead className="sticky top-0 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th scope="col" className="px-4 py-3">Date</th>
+                  <th scope="col" className="px-4 py-3">Book</th>
+                  <th scope="col" className="px-4 py-3 text-right">Collection (+)</th>
+                  <th scope="col" className="px-4 py-3 text-right">Withdrawals (-)</th>
+                  <th scope="col" className="px-4 py-3 text-right">Net Amount</th>
+                  <th scope="col" className="px-4 py-3 text-right">Entries</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {data.collectionBreakdown.map((row) => (
+                  <tr key={`${row.date}-${row.bookId ?? 'unassigned'}`} className="hover:bg-slate-50">
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">{formatDate(row.date)}</td>
+                    <td className="px-4 py-3 font-medium text-slate-900">{row.bookName}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums text-emerald-700">{formatAmount(row.deposits, symbol)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums text-rose-700">{formatAmount(row.withdrawals, symbol)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right font-mono font-semibold tabular-nums text-indigo-700">{formatAmount(row.net, symbol)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{row.entries}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="border-t border-slate-200 bg-slate-50 font-semibold">
+                <tr>
+                  <th scope="row" colSpan={2} className="px-4 py-3 text-left">Total</th>
+                  <td className="whitespace-nowrap px-4 py-3 text-right font-mono text-emerald-700">{formatAmount(totals.totalUserPaid, symbol)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right font-mono text-rose-700">{formatAmount(totals.totalAdminPaid, symbol)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right font-mono text-indigo-700">{formatAmount(totals.totalPending, symbol)}</td>
+                  <td className="px-4 py-3 text-right">{data.counts.ledgerEntries}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </Card>
 
       {/* Pending Submissions Queue (Admin Approval Section) */}
       {pendingEntries.length > 0 ? (
@@ -823,7 +876,7 @@ export default function DashboardPage() {
           <div className="p-6">
             <EmptyState
               title="No users created yet"
-              description="Click 'Create User' in the top bar to create your first user with just a Name and Password."
+              description="Click 'Create User' in the top bar to create your first user with a Name, 4-digit PIN and assigned books."
             />
           </div>
         ) : (

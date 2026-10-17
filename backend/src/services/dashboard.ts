@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../db/prisma.ts';
-import { isoDateToDbDate } from '../lib/dates.ts';
+import { dbDateToIso, isoDateToDbDate } from '../lib/dates.ts';
 import { errors } from '../lib/errors.ts';
 import { formatMoney, money, ZERO } from '../lib/money.ts';
 import { dateRange, id, num, textParam } from '../lib/validation.ts';
@@ -85,10 +85,40 @@ export async function dashboardData(query: Record<string, unknown>) {
       : userId ? prisma.userBook.count({ where: { userId, book: { status: 'ACTIVE' } } })
         : prisma.book.count({ where: { status: 'ACTIVE' } }),
   ]);
+  // Aggregate the full filtered selection, not just the ten recent transactions.
+  const collectionGroups = await prisma.transaction.groupBy({
+    by: ['entryDate', 'bookId', 'kind'],
+    where: { ...where, approvalStatus: 'APPROVED' },
+    _sum: { amount: true }, _count: { _all: true },
+    orderBy: [{ entryDate: 'desc' }, { bookId: 'asc' }],
+  });
+  const collectionBookIds = [...new Set(collectionGroups.flatMap((row) => row.bookId === null ? [] : [row.bookId]))];
+  const collectionBooks = collectionBookIds.length ? await prisma.book.findMany({
+    where: { id: { in: collectionBookIds } }, select: { id: true, name: true },
+  }) : [];
+  const bookNames = new Map(collectionBooks.map((book) => [book.id, book.name]));
+  const collection = new Map<string, { date: string; bookId: number | null; bookName: string;
+    deposits: Prisma.Decimal; withdrawals: Prisma.Decimal; entries: number }>();
+  for (const row of collectionGroups) {
+    const date = dbDateToIso(row.entryDate);
+    const key = `${date}-${row.bookId ?? 'unassigned'}`;
+    const total = collection.get(key) ?? { date, bookId: num(row.bookId),
+      bookName: row.bookId === null ? 'No book assigned' : bookNames.get(row.bookId) ?? 'Unknown book',
+      deposits: ZERO, withdrawals: ZERO, entries: 0 };
+    const sum = money(row._sum.amount ?? '0');
+    if (row.kind === 'DEPOSIT') total.deposits = total.deposits.plus(sum);
+    else total.withdrawals = total.withdrawals.plus(sum);
+    total.entries += row._count._all;
+    collection.set(key, total);
+  }
+  const collectionBreakdown = [...collection.values()].map((row) => ({ ...row,
+    deposits: formatMoney(row.deposits), withdrawals: formatMoney(row.withdrawals),
+    net: formatMoney(row.deposits.minus(row.withdrawals)),
+  }));
   const net = deposits.minus(withdrawals);
   const activeUsers = users.filter((user) => user.isActive).length;
   return {
-    today, timezone: business.timezone, currencySymbol: business.currencySymbol,
+    today, timezone: business.timezone, currencySymbol: business.currencySymbol, collectionBreakdown,
     counts: { activeCustomers: activeUsers, inactiveCustomers: users.length - activeUsers,
       activeSuppliers: 0, inactiveSuppliers: 0, totalUsers: users.length, activeUsers,
       ledgerEntries: approvedCount, entriesToday: todayDepositCount + todayWithdrawalCount,

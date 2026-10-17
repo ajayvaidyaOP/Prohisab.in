@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import { Route, Routes } from 'react-router';
+import { Navigate, Route, Routes } from 'react-router';
 import { RequireAuth, SessionWatcher, useMe } from './lib/auth';
 import { AppLayout } from './components/AppLayout';
 import { PageSkeleton } from './components/PageSkeleton';
@@ -79,7 +79,7 @@ export default function App() {
             }
           />
           <Route path="accounts" element={<Suspense fallback={<PageSkeleton />}><AdminOnly><AccountsPage /></AdminOnly></Suspense>} />
-          <Route path="accounts/new" element={<Suspense fallback={<PageSkeleton />}><AdminOnly><AccountFormPage /></AdminOnly></Suspense>} />
+          <Route path="accounts/new" element={<Suspense fallback={<PageSkeleton />}><AdminOnly><Navigate to="/accounts#create-user" replace /></AdminOnly></Suspense>} />
           <Route path="accounts/:id" element={<Suspense fallback={<PageSkeleton />}><AdminOnly><AccountDetailPage /></AdminOnly></Suspense>} />
           <Route path="accounts/:id/edit" element={<Suspense fallback={<PageSkeleton />}><AdminOnly><AccountFormPage /></AdminOnly></Suspense>} />
           <Route path="transactions" element={<Suspense fallback={<PageSkeleton />}><AdminOnly><TransactionsPage /></AdminOnly></Suspense>} />

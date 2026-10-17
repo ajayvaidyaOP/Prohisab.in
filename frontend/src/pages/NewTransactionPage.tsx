@@ -217,7 +217,7 @@ export default function NewTransactionPage() {
             {options.data && options.data.items.length === 0 && !account && (
               <Alert tone="info">
                 No accounts found.{' '}
-                <Link to="/accounts/new" className="font-medium underline">
+                <Link to="/accounts#create-user" className="font-medium underline">
                   Create a customer or supplier first.
                 </Link>
               </Alert>

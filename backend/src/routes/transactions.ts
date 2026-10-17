@@ -11,8 +11,9 @@ import { withIdempotency } from '../lib/idempotency.ts';
 import { buildMultiReportPdf } from '../lib/pdf.ts';
 import { actor, requireAdmin, requireAuth } from '../middleware/auth.ts';
 import { summary } from '../services/accounts.ts';
+import { combinedReport, type ReportWhere } from '../services/reports.ts';
 import { businessToday, businessView } from '../services/settings.ts';
-import { checkPostingDate, insertEntry, loadTransaction, lockEntry, parseKind, serializeTransaction, transactionInclude, validateBook, validateOption } from '../services/transactions.ts';
+import { checkPostingDate, insertEntry, loadTransaction, lockEntry, parseKind, serializeTransaction, transactionInclude, transactionTotals, validateBook, validateOption } from '../services/transactions.ts';
 
 export const transactionsRouter = Router();
 transactionsRouter.use(requireAuth);
@@ -23,32 +24,37 @@ function filters(query: Record<string, unknown>): Prisma.TransactionWhereInput {
   if (approvalStatus && !['PENDING', 'APPROVED', 'REJECTED'].includes(approvalStatus)) {
     throw errors.badRequest('Invalid approval status.');
   }
-  const type = textParam(query.type);
+  const type = textParam(query.type)?.toUpperCase();
+  const bookId = textParam(query.bookId);
   const accountId = textParam(query.accountId);
   const search = textParam(query.search)?.slice(0, 150);
   return {
     user: { role: 'USER' },
     ...(accountId ? { userId: id(accountId, 'accountId') } : {}),
     ...(approvalStatus ? { approvalStatus } : {}),
-    ...(type ? { kind: parseKind(type) } : {}),
+    ...(type && type !== 'REVERSAL' ? { kind: parseKind(type) } : {}),
+    ...(bookId ? { bookId: id(bookId, 'bookId') } : {}),
+    ...(type === 'REVERSAL' ? { AND: [{ reversalOfId: { not: null } }] } : {}),
     ...(query.includeReversals === 'false' ? { reversalOfId: null } : {}),
     ...(range.where ? { entryDate: range.where } : {}),
     ...(search ? { OR: [{ optionName: { contains: search } }, { detail: { contains: search } },
-      { referenceNumber: { contains: search } }, { user: { name: { contains: search } } }] } : {}),
+      { referenceNumber: { contains: search } }, { customerId: { contains: search } },
+      { bankDetails: { contains: search } }, { book: { name: { contains: search } } }, { user: { name: { contains: search } } }] } : {}),
   };
 }
 transactionsRouter.get('/', requireAdmin, async (req, res) => {
   const { page, pageSize, skip } = paging(req.query, 25);
   const where = filters(req.query);
-  const [items, total] = await Promise.all([
+  const [items, total, summary] = await Promise.all([
     prisma.transaction.findMany({ where, include: transactionInclude,
       orderBy: [{ entryDate: 'desc' }, { id: 'desc' }], skip, take: pageSize }),
     prisma.transaction.count({ where }),
+    transactionTotals(where),
   ]);
-  res.json({ items: items.map(serializeTransaction), pagination: pagination(page, pageSize, total) });
+  res.json({ items: items.map(serializeTransaction), pagination: pagination(page, pageSize, total), summary });
 });
 
-function multiFilters(query: Record<string, unknown>): Prisma.TransactionWhereInput {
+function multiFilters(query: Record<string, unknown>): ReportWhere {
   const range = dateRange(query);
   const rawIds = textParam(query.userIds);
   const ids = rawIds ? [...new Set(rawIds.split(',').map((value) => id(value.trim(), 'userIds')))] : [];
@@ -58,22 +64,62 @@ function multiFilters(query: Record<string, unknown>): Prisma.TransactionWhereIn
     ...(bookId ? { bookId: id(bookId, 'bookId') } : {}), ...(range.where ? { entryDate: range.where } : {}) };
 }
 transactionsRouter.get('/multi-report', requireAdmin, async (req, res) => {
+  if (req.query.summary === 'true') {
+    res.json(await combinedReport(multiFilters(req.query)));
+    return;
+  }
   const rows = await prisma.transaction.findMany({ where: multiFilters(req.query), include: transactionInclude,
     orderBy: [{ entryDate: 'desc' }, { id: 'desc' }], take: 10_001 });
   if (rows.length > 10_000) throw errors.badRequest('Too many entries for one report. Narrow the date range.');
   res.json(rows.map(serializeTransaction));
 });
 transactionsRouter.get('/multi-report.pdf', requireAdmin, async (req, res) => {
-  const rows = await prisma.transaction.findMany({ where: multiFilters(req.query), include: transactionInclude,
+  const report = await combinedReport(multiFilters(req.query));
+  const business = await businessView(prisma);
+  const bookId = textParam(req.query.bookId);
+  const book = bookId ? await prisma.book.findUnique({ where: { id: id(bookId, 'bookId') } }) : null;
+  const pdf = buildMultiReportPdf({ businessName: business.businessName, generatedDate: await businessToday(),
+    title: 'COMBINED STAFF COLLECTION REPORT',
+    summaryLine: `Approved collection: ${report.summary.deposits} | Withdrawals: ${report.summary.withdrawals} | Period net: ${report.summary.net}`,
+    filterLine: `Pending: ${report.summary.pendingEntries} / ${report.summary.pendingAmount} | Rejected: ${report.summary.rejectedEntries} (excluded) | ${book?.name ?? 'All books'} | Staff: ${report.staffSummary.map((row) => row.name).join(', ')}`,
+    comparisons: [
+      { title: 'STAFF-WISE SUMMARY', rows: report.staffSummary.map((row) => ({ ...row, label: row.name })) },
+      { title: 'BOOK-WISE SUMMARY', rows: report.bookSummary.map((row) => ({ ...row, label: row.name })) },
+    ],
+    fromDate: textParam(req.query.from) ?? null, toDate: textParam(req.query.to) ?? null,
+    rows: report.rows.map((entry) => ({ entryDate: entry.entryDate,
+      staff: entry.account.name, book: entry.bookName ?? 'No book assigned',
+      type: `${entry.direction === 'INCREASE' ? '+' : '-'} ${entry.typeLabel}`, amount: entry.amount,
+      status: entry.approvalStatus, description: entry.description,
+      customerId: entry.customerId ?? '-', bankDetails: entry.bankDetails ?? '-',
+    })),
+  });
+  res.type('application/pdf').attachment('multi-user-history.pdf').send(pdf);
+});
+
+// Uses exactly the same filters as the entries list, without its page limit.
+transactionsRouter.get('/report.pdf', requireAdmin, async (req, res) => {
+  const where = filters(req.query);
+  const rows = await prisma.transaction.findMany({ where, include: transactionInclude,
     orderBy: [{ entryDate: 'desc' }, { id: 'desc' }], take: 10_001 });
   if (rows.length > 10_000) throw errors.badRequest('Too many entries for one report. Narrow the date range.');
+  const totals = await transactionTotals(where);
   const business = await businessView(prisma);
+  const book = textParam(req.query.bookId) ? await prisma.book.findUnique({ where: { id: id(req.query.bookId, 'bookId') } }) : null;
+  const user = textParam(req.query.accountId) ? await prisma.user.findUnique({ where: { id: id(req.query.accountId, 'accountId') } }) : null;
   const pdf = buildMultiReportPdf({ businessName: business.businessName, generatedDate: await businessToday(),
+    title: 'ENTRIES & COLLECTION REPORT',
+    summaryLine: `Approved collection: ${totals.deposits} | Withdrawals: ${totals.withdrawals} | Net: ${totals.net} | Approved entries: ${totals.approvedEntries}`,
+    filterLine: `${book?.name ?? 'All books'} | ${user?.name ?? 'All users'} | ${textParam(req.query.type) ?? 'All types'} | ${textParam(req.query.approvalStatus) ?? 'All statuses'} | Search: ${textParam(req.query.search) ?? '-'} | Reversals: ${req.query.includeReversals === 'false' ? 'hidden' : 'included'}`,
     fromDate: textParam(req.query.from) ?? null, toDate: textParam(req.query.to) ?? null,
     rows: rows.map(serializeTransaction).map((entry) => ({ entryDate: entry.entryDate,
-      staff: entry.account.name, book: entry.bookName ?? '—', type: entry.typeLabel,
-      amount: entry.amount, status: entry.approvalStatus, description: entry.description })) });
-  res.type('application/pdf').attachment('multi-user-history.pdf').send(pdf);
+      staff: entry.account.name, book: entry.bookName ?? 'No book assigned',
+      type: `${entry.direction === 'INCREASE' ? '+' : '-'} ${entry.typeLabel}`, amount: entry.amount,
+      status: entry.approvalStatus, description: entry.description,
+      customerId: entry.customerId ?? '-', bankDetails: entry.bankDetails ?? '-',
+    })),
+  });
+  res.type('application/pdf').attachment('entries-collection.pdf').send(pdf);
 });
 
 transactionsRouter.get('/:id', async (req, res) => {

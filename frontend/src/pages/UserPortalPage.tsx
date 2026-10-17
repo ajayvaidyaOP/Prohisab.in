@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowDownLeft,
@@ -18,7 +18,6 @@ import {
   formatAmount,
   formatTime,
   isPositiveAmount,
-  parseDisplayDate,
   toDisplayDate,
 } from '../lib/format';
 import { invalidateFinancial, useSettings } from '../lib/queries';
@@ -104,7 +103,7 @@ export default function UserPortalPage() {
   // New Entry form state
   const [entryKind, setEntryKind] = useState<'DEPOSIT' | 'WITHDRAWAL'>('DEPOSIT');
   const [book, setBook] = useState('');
-  const [entryDate, setEntryDate] = useState(today);
+  const [entryDate, setEntryDate] = useState('');
   const [customerId, setCustomerId] = useState('');
   const [amount, setAmount] = useState('');
   const [bankDetails, setBankDetails] = useState('');
@@ -112,11 +111,19 @@ export default function UserPortalPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState(() => newIdempotencyKey());
 
-  // My History filter state (displayed as DD-MM-YYYY, applied as ISO)
-  const [fromInput, setFromInput] = useState(toDisplayDate(today));
-  const [toInput, setToInput] = useState(toDisplayDate(today));
+  // History dates are read-only reporting filters, independent of posting permissions.
+  const [fromInput, setFromInput] = useState(today);
+  const [toInput, setToInput] = useState(today);
   const [appliedRange, setAppliedRange] = useState<{ from: string; to: string }>({ from: today, to: today });
   const [filterError, setFilterError] = useState<string | null>(null);
+  const [historyDatesInitialized, setHistoryDatesInitialized] = useState(false);
+  useEffect(() => {
+    if (historyDatesInitialized || !settings.data?.today) return;
+    setFromInput(settings.data.today);
+    setToInput(settings.data.today);
+    setAppliedRange({ from: settings.data.today, to: settings.data.today });
+    setHistoryDatesInitialized(true);
+  }, [settings.data?.today, historyDatesInitialized]);
 
   // Edit entry dialog state
   const [editing, setEditing] = useState<LedgerEntry | null>(null);
@@ -130,23 +137,35 @@ export default function UserPortalPage() {
 
   const booksQuery = useQuery({ queryKey: ['books'], queryFn: () => api.books.list() });
   const availableBooks = (booksQuery.data ?? []).filter((candidate) => candidate.status === 'ACTIVE');
+  // Derive this from the latest assignments: one book needs no manual selection,
+  // and a removed/archived assignment must never remain selected.
+  const selectedBook = availableBooks.length === 1 ? String(availableBooks[0].id)
+    : availableBooks.some((candidate) => String(candidate.id) === book) ? book : '';
+  const accountQuery = useQuery({
+    queryKey: ['account', accountId],
+    queryFn: () => api.accounts.get(accountId!),
+    enabled: Boolean(accountId),
+  });
+
+  const selectedEntryDate = entryDate === today || entryDate === accountQuery.data?.account.backDateAllowedDate
+    ? entryDate : today;
 
   // The portal shows the most recent entries (up to 500) for the selected dates.
   const ledgerQuery = useQuery({
     queryKey: ['ledger', accountId, { pageSize: HISTORY_PAGE_SIZE, from: appliedRange.from, to: appliedRange.to }],
     queryFn: async () => {
-      const params = { pageSize: HISTORY_PAGE_SIZE, from: appliedRange.from, to: appliedRange.to };
+      const params = { pageSize: HISTORY_PAGE_SIZE, from: appliedRange.from || undefined, to: appliedRange.to || undefined };
       const first = await api.ledger.page(accountId!, { ...params, page: 1 });
       const total = first.pagination.total;
       const lastPage = Math.max(1, Math.ceil(total / HISTORY_PAGE_SIZE));
-      const startPage = Math.max(1, lastPage - Math.floor(MAX_HISTORY_ENTRIES / HISTORY_PAGE_SIZE) + 1);
+      const startPage = Math.max(1, Math.floor((total - MAX_HISTORY_ENTRIES) / HISTORY_PAGE_SIZE) + 1);
       const pages = await Promise.all(
         Array.from({ length: lastPage - startPage + 1 }, (_, index) =>
-          api.ledger.page(accountId!, { ...params, page: startPage + index })),
+          startPage + index === 1 ? Promise.resolve(first) : api.ledger.page(accountId!, { ...params, page: startPage + index })),
       );
       return { ...first, entries: pages.flatMap((page) => page.entries).slice(-MAX_HISTORY_ENTRIES) };
     },
-    enabled: Boolean(accountId),
+    enabled: Boolean(accountId) && historyDatesInitialized,
   });
 
   const addMoneyMutation = useMutation({
@@ -159,9 +178,9 @@ export default function UserPortalPage() {
       return api.transactions.create(
         {
           accountId: accountId!,
-          bookId: book ? Number(book) : null,
+          bookId: selectedBook ? Number(selectedBook) : null,
           type: entryKind,
-          entryDate,
+          entryDate: selectedEntryDate,
           amount,
           optionName,
           customerId: customerId.trim() || null,
@@ -215,7 +234,7 @@ export default function UserPortalPage() {
       setFormError('No active books are assigned to your account. Ask the administrator to grant book access.');
       return;
     }
-    if (!book) {
+    if (!selectedBook) {
       setFormError('Please select an assigned book.');
       return;
     }
@@ -226,20 +245,18 @@ export default function UserPortalPage() {
     addMoneyMutation.mutate();
   };
 
-  const applyFilter = () => {
-    const fromIso = parseDisplayDate(fromInput);
-    const toIso = parseDisplayDate(toInput);
-    if (!fromIso || !toIso) {
-      setFilterError('Enter both dates as DD-MM-YYYY, e.g. 17-10-2026.');
-      return;
-    }
-    if (fromIso > toIso) {
+  const applyFilter = (event: FormEvent) => {
+    event.preventDefault();
+    if (fromInput && toInput && fromInput > toInput) {
       setFilterError('From date must be on or before To date.');
       return;
     }
     setFilterError(null);
-    setAppliedRange({ from: fromIso, to: toIso });
+    setHistoryDatesInitialized(true);
+    if (fromInput === appliedRange.from && toInput === appliedRange.to) void ledgerQuery.refetch();
+    else setAppliedRange({ from: fromInput, to: toInput });
   };
+  const historyDatesChanged = fromInput !== appliedRange.from || toInput !== appliedRange.to;
 
   const openEdit = (entry: LedgerEntry) => {
     setEditing(entry);
@@ -285,7 +302,7 @@ export default function UserPortalPage() {
     );
   }
 
-  if (ledgerQuery.isPending) {
+  if (accountQuery.isPending) {
     return (
       <Card padded={false}>
         <SkeletonRows rows={5} cols={4} />
@@ -293,16 +310,17 @@ export default function UserPortalPage() {
     );
   }
 
-  if (ledgerQuery.isError || !ledgerQuery.data) {
+  if (accountQuery.isError || !accountQuery.data) {
     return (
       <ErrorState
-        message={ledgerQuery.error instanceof Error ? ledgerQuery.error.message : 'Could not load your account.'}
-        onRetry={() => void ledgerQuery.refetch()}
+        message={accountQuery.error instanceof Error ? accountQuery.error.message : 'Could not load your account.'}
+        onRetry={() => void accountQuery.refetch()}
       />
     );
   }
 
-  const { account, entries, totals, pagination } = ledgerQuery.data;
+  const { account } = accountQuery.data;
+  const { entries = [], totals, pagination } = ledgerQuery.data ?? {};
   const backDate = account.backDateAllowedDate;
   // Newest entries first, matching the "recent entries" history list.
   const history = [...entries].reverse();
@@ -323,6 +341,7 @@ export default function UserPortalPage() {
       {formError ? <Alert tone="error">{formError}</Alert> : null}
 
       {/* Account summary */}
+      <p className="text-xs font-medium text-slate-500">All-time business · Approved deposits and withdrawals</p>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <PortalStatCard label="Total Deposit" value={formatAmount(account.totalUserPaid, symbol)} icon={ArrowDownLeft} tone="emerald" />
         <PortalStatCard label="Total Withdrawal" value={formatAmount(account.totalAdminPaid, symbol)} icon={ArrowUpRight} tone="rose" />
@@ -339,23 +358,24 @@ export default function UserPortalPage() {
           New Entry
         </h2>
 
-        {!booksQuery.isPending && availableBooks.length === 0 && (
+        {booksQuery.isError && <div className="mt-3"><ErrorState message="Could not load your assigned books." onRetry={() => void booksQuery.refetch()} /></div>}
+        {!booksQuery.isPending && !booksQuery.isError && availableBooks.length === 0 && (
           <div className="mt-3">
             <Alert tone="warning">No active books are assigned to your account. Ask the administrator to grant book access before submitting an entry.</Alert>
           </div>
         )}
 
         <form onSubmit={onSubmit} className="mt-4 grid grid-cols-1 gap-4">
-          <Field label="Book" required>
+          <Field label="Book" required hint={availableBooks.length === 1 ? "Your only assigned book is selected automatically." : undefined}>
             {(fid) => (
               <select
                 id={fid}
-                value={book}
+                value={selectedBook}
                 onChange={(e) => { setBook(e.target.value); setIdempotencyKey(newIdempotencyKey()); }}
-                disabled={booksQuery.isPending || availableBooks.length === 0}
+                disabled={booksQuery.isPending || booksQuery.isError || availableBooks.length <= 1}
                 className={portalInput}
               >
-                <option value="">Select assigned book</option>
+                {availableBooks.length !== 1 && <option value="">Select assigned book</option>}
                 {availableBooks.map((availableBook) => (
                   <option key={availableBook.id} value={String(availableBook.id)}>{availableBook.name}</option>
                 ))}
@@ -373,7 +393,7 @@ export default function UserPortalPage() {
             {(fid) => (
               <select
                 id={fid}
-                value={entryDate}
+                value={selectedEntryDate}
                 onChange={(e) => { setEntryDate(e.target.value); setIdempotencyKey(newIdempotencyKey()); }}
                 className={portalInput}
               >
@@ -447,7 +467,7 @@ export default function UserPortalPage() {
           <div>
             <button
               type="submit"
-              disabled={addMoneyMutation.isPending}
+              disabled={addMoneyMutation.isPending || booksQuery.isPending || booksQuery.isError || !availableBooks.length}
               aria-busy={addMoneyMutation.isPending || undefined}
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
             >
@@ -470,16 +490,14 @@ export default function UserPortalPage() {
         </div>
 
         <div className="space-y-4 border-b border-slate-200 px-5 py-4">
-          <div className="flex flex-wrap items-end gap-3">
+          <form onSubmit={applyFilter} className="flex flex-wrap items-end gap-3">
             <Field label="From">
               {(fid) => (
                 <input
                   id={fid}
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="DD-MM-YYYY"
+                  type="date"
                   value={fromInput}
-                  onChange={(e) => setFromInput(e.target.value)}
+                  onChange={(e) => { setFromInput(e.target.value); setHistoryDatesInitialized(true); setFilterError(null); }}
                   className={`${portalInput} w-40`}
                 />
               )}
@@ -488,33 +506,37 @@ export default function UserPortalPage() {
               {(fid) => (
                 <input
                   id={fid}
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="DD-MM-YYYY"
+                  type="date"
                   value={toInput}
-                  onChange={(e) => setToInput(e.target.value)}
+                  onChange={(e) => { setToInput(e.target.value); setHistoryDatesInitialized(true); setFilterError(null); }}
                   className={`${portalInput} w-40`}
                 />
               )}
             </Field>
-            <Button type="button" onClick={applyFilter}>
-              Filter
-            </Button>
-          </div>
+            <Button type="submit" loading={ledgerQuery.isFetching}>Filter</Button>
+            <Button variant="ghost" onClick={() => { setFromInput(today); setToInput(today); setHistoryDatesInitialized(true); setFilterError(null); }}>Today</Button>
+            <Button variant="ghost" onClick={() => { setFromInput(''); setToInput(''); setHistoryDatesInitialized(true); setFilterError(null); }}>All dates</Button>
+          </form>
+          <p className="text-xs text-slate-500">View your own business for any date or date range. Use the same From and To date for one day. This does not grant back-date entry permission.</p>
+          {historyDatesChanged && <p className="text-xs font-medium text-amber-700">Dates changed. Click Filter to update your history and totals.</p>}
           {filterError ? <Alert tone="error">{filterError}</Alert> : null}
           <p className="text-sm text-slate-700">
             <span className="font-medium">Selected dates</span>
             <span className="ml-2 font-semibold text-slate-900">
-              {toDisplayDate(appliedRange.from)} to {toDisplayDate(appliedRange.to)}
+              {appliedRange.from ? toDisplayDate(appliedRange.from) : 'Beginning'} to {appliedRange.to ? toDisplayDate(appliedRange.to) : 'Latest'}
             </span>
           </p>
         </div>
 
+        {ledgerQuery.isPending || ledgerQuery.isFetching ? <SkeletonRows rows={4} cols={4} />
+          : ledgerQuery.isError ? <div className="p-5"><ErrorState message={ledgerQuery.error.message} onRetry={() => void ledgerQuery.refetch()} /></div>
+          : totals && pagination && <>
+        <p className="px-5 pt-4 text-xs text-slate-500">Selected-period business · Deposit, withdrawal and net count approved entries only. Total Entries includes all matching statuses. Totals cover the full date range, even when only the latest 500 entries are shown.</p>
         <div className="grid grid-cols-1 gap-4 border-b border-slate-200 px-5 py-4 sm:grid-cols-2 xl:grid-cols-4">
           <PortalStatCard label="Total Deposit" value={formatAmount(totals.increases, symbol)} icon={ArrowDownLeft} tone="emerald" />
           <PortalStatCard label="Total Withdrawal" value={formatAmount(totals.decreases, symbol)} icon={ArrowUpRight} tone="rose" />
           <PortalStatCard label="Net (Deposit - Withdrawal)" value={formatAmount(totals.net, symbol)} icon={Scale} tone="indigo" />
-          <PortalStatCard label="Total Entries" value={totals.entryCount.toLocaleString('en-IN')} icon={ReceiptText} tone="violet" />
+          <PortalStatCard label="Total Entries" value={pagination.total.toLocaleString('en-IN')} icon={ReceiptText} tone="violet" />
         </div>
 
         {history.length === 0 ? (
@@ -524,7 +546,8 @@ export default function UserPortalPage() {
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-[#f3f6ff] text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="px-4 py-3">Time (IST)</th>
+                  <th className="px-4 py-3">Ledger date / Time ({timezone})</th>
+                  <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Book</th>
                   <th className="px-4 py-3">Staff</th>
                   <th className="px-4 py-3">Customer ID</th>
@@ -542,8 +565,10 @@ export default function UserPortalPage() {
                   return (
                     <tr key={row.id} className="hover:bg-slate-50/80">
                       <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-700">
-                        {formatTime(row.createdAt, timezone)}
+                        <div>{toDisplayDate(row.entryDate)}</div>
+                        <div className="mt-1 text-slate-400" title="Time recorded">{formatTime(row.createdAt, timezone)}</div>
                       </td>
+                      <td className="px-4 py-3"><Badge tone={row.approvalStatus === 'APPROVED' ? 'emerald' : row.approvalStatus === 'REJECTED' ? 'rose' : 'amber'}>{row.approvalStatus ?? 'APPROVED'}</Badge></td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-700">{row.bookName ?? '—'}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-700">{row.staffName ?? '—'}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-700">{row.customerId ?? '—'}</td>
@@ -580,6 +605,7 @@ export default function UserPortalPage() {
           Up to {MAX_HISTORY_ENTRIES} recent matching entries shown ({pagination.total} total in selected dates).
           Entries can be edited for 1 hour after creation.
         </div>
+        </>}
       </Card>
 
       {/* Edit entry dialog (within 1 hour of creation) */}
