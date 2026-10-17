@@ -55,6 +55,45 @@ export function formatDateTime(iso: string | null | undefined, timeZone: string)
   }
 }
 
+/** "2026-10-17" -> "17-10-2026" (the DD-MM-YYYY format used across the user portal). */
+export function toDisplayDate(isoDate: string | null | undefined): string {
+  if (!isoDate) return '';
+  const [y, m, d] = isoDate.split('-');
+  return y && m && d ? `${d}-${m}-${y}` : isoDate;
+}
+
+const DISPLAY_DATE_PATTERN = /^(\d{1,2})-(\d{1,2})-(\d{4})$/;
+
+/** "17-10-2026" -> "2026-10-17", or null when the text is not a real calendar date. */
+export function parseDisplayDate(value: string): string | null {
+  const match = DISPLAY_DATE_PATTERN.exec(value.trim());
+  if (!match) return null;
+  const [, dayRaw, monthRaw, yearRaw] = match;
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  if (probe.getUTCFullYear() !== year || probe.getUTCMonth() !== month - 1 || probe.getUTCDate() !== day) return null;
+  return `${yearRaw}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/** "2026-10-17T09:30:05Z" -> "09:30:05" in the business time zone (the portal's Time (IST) column). */
+export function formatTime(iso: string | null | undefined, timeZone: string): string {
+  if (!iso) return '—';
+  try {
+    return new Intl.DateTimeFormat('en-IN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+      timeZone,
+    }).format(new Date(iso));
+  } catch {
+    return iso.slice(11, 19);
+  }
+}
+
 export const PAYMENT_METHOD_OPTIONS = [
   { value: 'CASH', label: 'Cash' },
   { value: 'UPI', label: 'UPI' },

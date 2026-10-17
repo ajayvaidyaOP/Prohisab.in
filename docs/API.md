@@ -47,6 +47,7 @@ Error envelope: `{ "error": { "code": "…", "message": "…", "details": [{ "fi
 | GET | `/transactions` | admin | Filter `search`, `type`, `approvalStatus`, `accountId`, `from`, `to`, `includeReversals=false`, `page`, `pageSize` → `{ items, pagination }` |
 | GET | `/transactions/:id` | owner/admin | Transaction object |
 | POST | `/transactions` | signed in | See create example below → `201 { transaction, account, replayed }` |
+| PATCH | `/transactions/:id` | owner/admin | Edit an own entry within 1 hour of creation (admins: any entry). `{ type?, entryDate?, amount?, optionName?, detail?, paymentMethod?, referenceNumber?, bookId?, customerId?, bankDetails? }` → `{ transaction, account, replayed }`. Reversals, reversed, rejected and expired entries are rejected with 422. |
 | POST | `/transactions/:id/approve` | admin | `{}` → `{ transaction, account, alreadyApproved, replayed }` |
 | POST | `/transactions/:id/reject` | admin | `{ reason }` → `{ transaction, account, alreadyRejected, replayed }` |
 | POST | `/transactions/:id/reversal` | admin | `{ reason, entryDate? }` → `{ reversal, original, account, replayed }`; exactly one offsetting entry |
@@ -75,5 +76,7 @@ Error envelope: `{ "error": { "code": "…", "message": "…", "details": [{ "fi
 ```
 
 `type` is `DEPOSIT` (+) or `WITHDRAWAL` (−). The API accepts some legacy names (e.g. `CREDIT_SALE`, `PAYMENT_MADE`), **not** client-created `REVERSAL` entries. `optionName` must be an active admin-configured option. `detail`, `referenceNumber`, `paymentMethod`, `customerId`, `bankDetails` are optional. Staff must use their own `accountId`; if they have assigned active books, they must select one of those. Staff can post today, or the **exact** earlier date granted by an admin. Admins can back-date and post directly. A pending submission changes the approval queue, not the approved balance; rejecting it keeps history. An admin reversal preserves both the original and a new offsetting approved transaction. `AccountSummary` contains `totalUserPaid` (approved deposits), `totalAdminPaid` (approved withdrawals), `pendingBalance` (approved net balance), `pendingSubmissionsCount`, `balance: { amount, side, status }`, `allowedBookIds`, and `backDateAllowedDate`.
+
+Ledger entries additionally carry `bookId`, `bookName`, `staffName` (who recorded the entry), `customerId`, `bankDetails` and `createdAt` for the user portal's history table. Staff can edit their own entries for 1 hour after creation via `PATCH /transactions/:id`; the edit window, ownership and entry state (not a reversal, not reversed, not rejected) are enforced server-side.
 
 Send an optional unique `Idempotency-Key` header on account creation, transaction creation, approval, rejection, and reversal. Reusing the same key with identical input returns the stored status/body with `replayed: true`; different input gets `409 IDEMPOTENCY_KEY_REUSED`. Replay records are per actor and operation, stored atomically alongside the ledger write. Approval/rejection/reversal also use row locks in MySQL to prevent double decisions. Invalid business states return 409/422 without partially posting money.
