@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate, useSearchParams } from 'react-router';
 import { FileDown, Search, UserPlus, Wallet } from 'lucide-react';
@@ -10,7 +10,6 @@ import {
   Alert,
   Badge,
   Button,
-  ButtonLink,
   Card,
   EmptyState,
   ErrorState,
@@ -29,6 +28,13 @@ export default function AccountsPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const qc = useQueryClient();
+  const createSection = useRef<HTMLDivElement>(null);
+  const createNameInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (location.hash !== '#create-user') return;
+    createSection.current?.scrollIntoView?.({ block: 'start' });
+    createNameInput.current?.focus({ preventScroll: true });
+  }, [location]);
   const navState = location.state as { flash?: string } | null;
   const [downloadingSummaryPdf, setDownloadingSummaryPdf] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
@@ -117,9 +123,6 @@ export default function AccountsPage() {
             <Button variant="secondary" loading={downloadingSummaryPdf} onClick={() => void handleDownloadSummaryPdf()}>
               <FileDown className="h-4 w-4" aria-hidden="true" /> All Users Summary PDF
             </Button>
-            <ButtonLink to="/accounts/new" variant="secondary">
-              <UserPlus className="h-4 w-4" aria-hidden="true" /> Advanced User Form
-            </ButtonLink>
           </>
         }
       />
@@ -128,6 +131,7 @@ export default function AccountsPage() {
       {createdMessage ? <Alert tone="success">{createdMessage}</Alert> : null}
       {pdfError ? <Alert tone="error">{pdfError}</Alert> : null}
 
+      <div id="create-user" ref={createSection} className="scroll-mt-28">
       <Card>
         <h2 className="mb-1 text-base font-semibold text-slate-900">Create User</h2>
         <p className="mb-4 text-sm text-slate-600">Create a staff login with a name and a unique 4-digit PIN.</p>
@@ -135,7 +139,7 @@ export default function AccountsPage() {
           {createError && <Alert tone="error">{createError}</Alert>}
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Name" required>
-              {(id) => <TextInput id={id} value={createName} onChange={(e) => setCreateName(e.target.value)} maxLength={150} placeholder="Staff name" />}
+              {(id) => <TextInput ref={createNameInput} id={id} value={createName} onChange={(e) => setCreateName(e.target.value)} maxLength={150} placeholder="Staff name" />}
             </Field>
             <Field label="4-digit PIN" required>
               {(id) => (
@@ -176,6 +180,7 @@ export default function AccountsPage() {
           </Button>
         </form>
       </Card>
+      </div>
 
       <Card>
         <div className="grid gap-3 sm:grid-cols-[1fr_200px]">

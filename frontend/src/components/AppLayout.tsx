@@ -1,5 +1,5 @@
-import { Suspense, useEffect, useState } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router';
+import { Suspense, useEffect, useId, useRef, useState } from 'react';
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowRightLeft,
@@ -8,6 +8,8 @@ import {
   ClipboardList,
   LayoutDashboard,
   LogOut,
+  Menu,
+  X,
   Plus,
   Settings,
   UserPlus,
@@ -33,12 +35,6 @@ const USER_NAV = [
   { to: '/', label: 'My Deposit & Withdraw', icon: Wallet, end: true },
 ];
 
-function navClass(isActive: boolean) {
-  return `flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
-    isActive ? 'border-indigo-600 bg-indigo-600 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-200 hover:text-indigo-700'
-  }`;
-}
-
 function BrandLogo({ url, name }: { url?: string | null; name: string }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [url]);
@@ -57,6 +53,34 @@ export function AppLayout() {
   const settings = useSettings();
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuId = useId();
+  const menuContainer = useRef<HTMLDivElement>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const menuPanel = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { setMenuOpen(false); }, [location]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    menuPanel.current?.querySelector<HTMLElement>('a, button')?.focus();
+    const onPointerDown = (event: PointerEvent) => {
+      if (!menuContainer.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setMenuOpen(false);
+        menuButton.current?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [menuOpen]);
   const businessName = settings.data?.business.businessName ?? 'Deposit & Withdrawal CRM';
   const logoUrl = settings.data?.business.logoUrl ?? null;
   const isAdmin = me.data?.role !== 'USER';
@@ -77,17 +101,6 @@ export function AppLayout() {
     },
   });
 
-  const signOutButton = (
-    <button
-      type="button"
-      onClick={() => logout.mutate()}
-      disabled={logout.isPending}
-      className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white/95 hover:bg-white/10 disabled:opacity-60"
-      aria-label="Sign out"
-    >
-      <LogOut className="h-4 w-4" aria-hidden="true" /> <span>Logout</span>
-    </button>
-  );
 
   return (
     <div className="min-h-screen bg-[#eef2ff] lg:flex">
@@ -115,9 +128,7 @@ export function AppLayout() {
             <Badge tone={isAdmin ? 'indigo' : 'emerald'}>{isAdmin ? 'Admin' : 'User'}</Badge>
           </div>
           <p className="truncate text-xs text-slate-500">Login: {me.data?.username ?? ''}</p>
-          <button type="button" onClick={() => logout.mutate()} disabled={logout.isPending} className="mt-2.5 inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900 disabled:opacity-60">
-            <LogOut className="h-4 w-4" aria-hidden="true" /> Sign out
-          </button>
+
         </div>
       </aside>
 
@@ -135,35 +146,59 @@ export function AppLayout() {
               <div className="flex shrink-0 items-center gap-2">
                 {isAdmin && (
                   <div className="hidden items-center gap-2 lg:flex">
-                    <ButtonLink to="/accounts/new" variant="secondary" className="!px-3 !py-1.5"><UserPlus className="h-4 w-4" /> Create User</ButtonLink>
+                    <ButtonLink to="/accounts#create-user" variant="secondary" className="!px-3 !py-1.5"><UserPlus className="h-4 w-4" /> Create User</ButtonLink>
                     <ButtonLink to="/transactions/new" variant="primary" className="!border !border-white/30 !px-3 !py-1.5"><Plus className="h-4 w-4" /> New Entry</ButtonLink>
                   </div>
                 )}
                 {isAdmin && pendingCount > 0 && <span className="hidden rounded-full bg-rose-500 px-2 py-1 text-xs font-bold sm:inline-flex">{pendingCount} Pending</span>}
                 <span className="hidden text-sm font-medium sm:inline">{isAdmin ? 'Admin' : 'Staff'}</span>
-                {signOutButton}
+                <div ref={menuContainer} className="relative" onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMenuOpen(false);
+                }}>
+                  <button
+                    ref={menuButton}
+                    type="button"
+                    aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+                    aria-expanded={menuOpen}
+                    aria-controls={menuId}
+                    onClick={() => setMenuOpen((open) => !open)}
+                    className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/30 text-white transition-colors hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                  >
+                    {menuOpen ? <X className="h-6 w-6" aria-hidden="true" /> : <Menu className="h-6 w-6" aria-hidden="true" />}
+                  </button>
+                  {menuOpen && (
+                    <div ref={menuPanel} id={menuId} className="absolute right-0 top-full z-50 mt-3 max-h-[calc(100dvh-7rem)] w-72 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 text-slate-800 shadow-xl shadow-indigo-950/20">
+                      <div className="mb-2 border-b border-slate-100 px-3 py-3">
+                        <p className="truncate text-sm font-semibold">{me.data?.name ?? me.data?.username}</p>
+                        <p className="mt-1 text-xs text-slate-500">{isAdmin ? 'Admin Ledger Panel' : 'Staff account'}</p>
+                      </div>
+                      <nav aria-label="Header navigation" className="space-y-1">
+                        {navItems.map((item) => (
+                          <NavLink key={item.to} to={item.to} end={item.end} onClick={() => setMenuOpen(false)} className={({ isActive }) => `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${isActive ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 hover:text-indigo-700'}`}>
+                            <item.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                            <span>{item.label}</span>
+                            {isAdmin && item.to === '/' && pendingCount > 0 && <span className="ml-auto rounded-full bg-rose-600 px-2 py-0.5 text-xs font-bold text-white">{pendingCount}</span>}
+                          </NavLink>
+                        ))}
+                        {isAdmin && (
+                          <div className="mt-2 space-y-1 border-t border-slate-100 pt-2">
+                            <NavLink to="/accounts#create-user" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-indigo-50 hover:text-indigo-700"><UserPlus className="h-4 w-4" aria-hidden="true" /> Create User</NavLink>
+                            <NavLink to="/transactions/new" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-indigo-50 hover:text-indigo-700"><Plus className="h-4 w-4" aria-hidden="true" /> New Entry</NavLink>
+                          </div>
+                        )}
+                      </nav>
+                      <div className="mt-2 border-t border-slate-200 pt-2">
+                        <button type="button" onClick={() => logout.mutate()} disabled={logout.isPending} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60">
+                          <LogOut className="h-4 w-4" aria-hidden="true" /> {logout.isPending ? 'Logging out…' : 'Logout'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
-            <nav className="mt-2 flex gap-2 overflow-x-auto pb-1 lg:hidden" aria-label="Main mobile">
-              {navItems.map((item) => (
-                <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => navClass(isActive)}>
-                  <item.icon className="h-4 w-4" aria-hidden="true" />
-                  <span>{item.label}</span>
-                  {isAdmin && item.to === '/' && pendingCount > 0 ? <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{pendingCount}</span> : null}
-                </NavLink>
-              ))}
-              {isAdmin && (
-                <>
-                  <ButtonLink to="/accounts/new" variant="secondary" className="shrink-0 !rounded-xl !px-3 !py-2">
-                    <UserPlus className="h-4 w-4" aria-hidden="true" /><span>Create User</span>
-                  </ButtonLink>
-                  <ButtonLink to="/transactions/new" variant="primary" className="shrink-0 !rounded-xl !px-3 !py-2">
-                    <Plus className="h-4 w-4" aria-hidden="true" /><span>New Entry</span>
-                  </ButtonLink>
-                </>
-              )}
-            </nav>
+
           </div>
         </header>
 

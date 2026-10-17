@@ -10,6 +10,9 @@ import type {
   SettingsView,
   StatementResponse,
   Transaction,
+  TransactionFilters,
+  TransactionSummary,
+  CombinedReport,
 } from './types';
 
 /** Error thrown for every non-2xx response. Message is safe to show to the user. */
@@ -234,23 +237,31 @@ export const api = {
     restore: (id: number) => post<BookSummary>(`/books/${id}/restore`, {}),
   },
   transactions: {
-    list: (params: {
-      search?: string;
-      type?: string;
-      approvalStatus?: string;
-      accountId?: number;
-      from?: string;
-      to?: string;
-      includeReversals?: boolean;
-      page?: number;
-      pageSize?: number;
-    }) =>
-      get<{ items: Transaction[]; pagination: Pagination }>('/transactions', {
+    list: (params: TransactionFilters & { page?: number; pageSize?: number }) =>
+      get<{ items: Transaction[]; pagination: Pagination; summary: TransactionSummary }>('/transactions', {
         ...params,
         includeReversals: params.includeReversals === false ? 'false' : undefined,
       }),
+    downloadReportPdf: async (params: TransactionFilters) => {
+      const response = await fetch(buildUrl('/transactions/report.pdf', { ...params }), {
+        headers: { Accept: 'application/pdf', 'X-Requested-With': 'XMLHttpRequest' },
+        credentials: API_BASE_URL ? 'include' : 'same-origin',
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new ApiError(response.status, 'PDF_DOWNLOAD_FAILED', body?.error?.message ?? 'Could not download the entries report.');
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `entries-collection-${params.from ?? 'all'}-to-${params.to ?? 'latest'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    },
     multiReport: (userIds: number[] | null, from?: string, to?: string, bookId?: number) =>
-      get<Transaction[]>(`/transactions/multi-report`, { userIds: userIds?.length ? userIds.join(',') : undefined, from, to, bookId }),
+      get<CombinedReport>(`/transactions/multi-report`, { userIds: userIds?.length ? userIds.join(',') : undefined, from, to, bookId, summary: 'true' }),
     downloadMultiReportPdf: async (userIds: number[] | null, from?: string, to?: string, bookId?: number) => {
       const params = { userIds: userIds?.length ? userIds.join(',') : undefined, from, to, bookId };
       const response = await fetch(buildUrl('/transactions/multi-report.pdf', params), {
@@ -258,7 +269,10 @@ export const api = {
         headers: { Accept: 'application/pdf', 'X-Requested-With': 'XMLHttpRequest' },
         credentials: API_BASE_URL ? 'include' : 'same-origin',
       });
-      if (!response.ok) throw new ApiError(response.status, 'PDF_DOWNLOAD_FAILED', 'Could not download the multi-user history PDF.');
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new ApiError(response.status, 'PDF_DOWNLOAD_FAILED', body?.error?.message ?? 'Could not download the multi-user history PDF.');
+      }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

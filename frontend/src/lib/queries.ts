@@ -11,6 +11,7 @@ export function useSettings() {
 export function invalidateFinancial(qc: QueryClient, accountId?: number) {
   void qc.invalidateQueries({ queryKey: ['dashboard'] });
   void qc.invalidateQueries({ queryKey: ['transactions'] });
+  void qc.invalidateQueries({ queryKey: ['multi-report'] });
   void qc.invalidateQueries({ queryKey: ['accounts'] });
   void qc.invalidateQueries({ queryKey: ['accountOptions'] });
   void qc.invalidateQueries({ queryKey: ['account'] });

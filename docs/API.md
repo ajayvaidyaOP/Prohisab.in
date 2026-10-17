@@ -44,20 +44,21 @@ Error envelope: `{ "error": { "code": "…", "message": "…", "details": [{ "fi
 | GET | `/settings/entry-options` | signed in | `{ items }`; staff only see active options |
 | PUT | `/settings/entry-options` | admin | `{ options: ["Cash Deposit", …] }` replaces active list without removing historical entries |
 | POST / PATCH / DELETE | `/settings/entry-options[/:id]` | admin | Create `{ name }`, edit `{ name?, isActive?, sortOrder? }`, delete unused; `POST /:id/deactivate` for used options |
-| GET | `/transactions` | admin | Filter `search`, `type`, `approvalStatus`, `accountId`, `from`, `to`, `includeReversals=false`, `page`, `pageSize` → `{ items, pagination }` |
+| GET | `/transactions` | admin | Filter `search` (staff/book/customer/bank/reference/notes), `type` (`DEPOSIT`, `WITHDRAWAL`, `REVERSAL`, or legacy aliases), `approvalStatus`, `accountId`, `bookId`, `from`, `to`, `includeReversals=false`, `page`, `pageSize` → `{ items, pagination, summary }`. `summary` contains decimal strings `deposits`, `withdrawals`, `net`, and numeric `approvedEntries`, across all matching pages; only approved amounts count. |
+| GET | `/transactions/report.pdf` | admin | Same filters as `/transactions` (ignores pagination) → entries and collection PDF with approved totals; max 10,000 entries (narrow dates if exceeded) |
 | GET | `/transactions/:id` | owner/admin | Transaction object |
 | POST | `/transactions` | signed in | See create example below → `201 { transaction, account, replayed }` |
 | PATCH | `/transactions/:id` | owner/admin | Edit an own entry within 1 hour of creation (admins: any entry). `{ type?, entryDate?, amount?, optionName?, detail?, paymentMethod?, referenceNumber?, bookId?, customerId?, bankDetails? }` → `{ transaction, account, replayed }`. Reversals, reversed, rejected and expired entries are rejected with 422. |
 | POST | `/transactions/:id/approve` | admin | `{}` → `{ transaction, account, alreadyApproved, replayed }` |
 | POST | `/transactions/:id/reject` | admin | `{ reason }` → `{ transaction, account, alreadyRejected, replayed }` |
 | POST | `/transactions/:id/reversal` | admin | `{ reason, entryDate? }` → `{ reversal, original, account, replayed }`; exactly one offsetting entry |
-| GET | `/transactions/multi-report` | admin | `userIds=1,2`, `from`, `to`, `bookId` → array of rows (up to 10,000) |
-| GET | `/transactions/multi-report.pdf` | admin | Same filters → PDF download |
+| GET | `/transactions/multi-report` | admin | `userIds=1,2`, `from`, `to`, `bookId` → array of rows (up to 10,000); add `summary=true` for `{ rows, summary, staffSummary, bookSummary }`. Summary totals use approved entries only; pending/rejected counts remain separate. Selected inactive/zero-activity staff and unassigned/archived books are retained. Net is period movement, not closing balance. |
+| GET | `/transactions/multi-report.pdf` | admin | Same filters → combined PDF: staff comparison, book comparison, approved totals and all matching history (including pending/rejected rows, excluded from money totals); same 10,000-entry limit |
 | GET | `/accounts/:id/ledger` | owner/admin | `from`, `to`, `search`, `page`, `pageSize` → `{ account, entries, totals, openingBalance, balanceBroughtForward, closingBalance, pagination }` |
 | GET | `/accounts/:id/statement` | owner/admin | Same as ledger, unpaginated |
 | GET | `/accounts/:id/ledger.csv` | admin | Same filters → CSV (formula-safe untrusted text) |
 | GET | `/accounts/:id/ledger.pdf` | admin | Same filters, or `period=this-month/last-month` → PDF |
-| GET | `/dashboard` | admin | Optional `from`, `to`, `bookId`, `userId` → counts, totals, pending entries, staff overview |
+| GET | `/dashboard` | admin | Optional `from`, `to`, `bookId`, `userId` → counts, totals, pending entries, staff overview, `collectionBreakdown` (approved date/book totals: `date`, nullable `bookId`, `bookName`, decimal-string `deposits`, `withdrawals`, `net`, and `entries`; newest date first; unassigned books included) |
 | GET | `/dashboard/summary.pdf` | admin | Same filters → all-users summary PDF |
 | GET | `/audit-logs` | admin | `entityType?`, `page`, `pageSize` → `{ items, pagination }` |
 

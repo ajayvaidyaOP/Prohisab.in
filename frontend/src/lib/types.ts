@@ -177,6 +177,15 @@ export interface DashboardUserOverview {
 }
 
 export interface DashboardData {
+  collectionBreakdown: Array<{
+    date: string;
+    bookId: number | null;
+    bookName: string;
+    deposits: string;
+    withdrawals: string;
+    net: string;
+    entries: number;
+  }>;
   today: string;
   timezone: string;
   currencySymbol: string;
@@ -271,4 +280,35 @@ export interface AccountOption {
   totalAdminPaid?: string;
   pendingBalance?: string;
   balance: Balance;
+}
+
+export interface TransactionFilters {
+  search?: string;
+  type?: string;
+  approvalStatus?: string;
+  accountId?: number;
+  bookId?: number;
+  from?: string;
+  to?: string;
+  includeReversals?: boolean;
+}
+
+export interface TransactionSummary {
+  deposits: string;
+  withdrawals: string;
+  net: string;
+  approvedEntries: number;
+}
+
+export interface CombinedReportTotals extends TransactionSummary {
+  totalEntries: number;
+  pendingEntries: number;
+  rejectedEntries: number;
+  pendingAmount: string;
+}
+export interface CombinedReport {
+  rows: Transaction[];
+  summary: CombinedReportTotals;
+  staffSummary: Array<CombinedReportTotals & { userId: number; name: string; isActive: boolean }>;
+  bookSummary: Array<CombinedReportTotals & { bookId: number | null; name: string }>;
 }

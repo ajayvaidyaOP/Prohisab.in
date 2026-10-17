@@ -19,7 +19,19 @@ npm run dev         # Express on :4000, Vite on :5173
 
 Initial **demo-only** login (unless overridden by `ADMIN_PASSWORD`): `admin` / `Admin@12345`. Change it immediately under Settings. In Arena's embedded HTTPS preview the session uses a secure, partitioned cookie so login works inside the iframe; if your browser still blocks embedded cookies, open the preview in a new tab and sign in there. The demo ledger lives in `backend/.erp-local-db/` (Git-ignored) and survives server restarts; it is **not your MySQL data**. To reset only your demo, stop the server and remove that directory. `npm run dev:backend` starts just the demo API; `npm run dev:frontend` starts just Vite. Vite forwards browser `/api` requests to Express, so cookies remain same-origin. No credentials are stored in browser storage.
 
+Settings intentionally shows only company name/logo and the admin password-change form. Saving company branding preserves the existing currency, time zone, contact details and entry options; the full activity log remains under Audit.
+
 Admin creates staff using a unique **name and four-digit PIN** (or name + password), adds Books and grants staff access, then can authorize a particular back-date. Staff can only see their assigned active books, own ledger and transactions. Staff submissions wait for admin approval; admin entries post immediately. An admin can reset a staff password/PIN and revoke their sessions. The admin can export individual statements, summary PDFs and filtered multi-reports.
+
+### Staff portal
+
+A single assigned active book is automatically selected for new entries; multiple assigned books remain selectable. My History uses calendar From/To controls with Today and All dates shortcuts. Click Filter to apply a range and see the user's own entries and approved deposit/withdrawal/net totals for that period. History access does not grant back-date posting permission or access to another user's ledger. Totals cover the full selection; the table shows the latest 500 matching entries, including their ledger dates and approval statuses.
+
+### Individual ledger vs. combined staff report
+
+- **Users → Ledger**: one staff account, running/closing balance, approvals and corrections.
+- **Multi User Report**: compare all staff or a chosen group for the same date range and book. Defaults to today; Today/All dates shortcuts are available. It shows approved collection, withdrawal and period net, staff-wise and book-wise comparisons, then paginated combined history. Pending/rejected counts are separate. Zero-activity and inactive selected staff are included; archived and unassigned books retain their history.
+- Click **Show Report** to apply changes. Editing a filter does not silently change the results or PDF. **Download Combined PDF** includes both comparison sections and all matching entries, not just the visible history page. Reports are limited to 10,000 entries; narrow the dates for larger datasets. Period net is not an all-time ledger closing balance.
 
 ## Run with an existing or new MySQL database
 
@@ -63,10 +75,12 @@ This copies old logins (Argon2 hashes retained), accounts, opening balances, led
 | `npm run db:import-legacy -- --i-have-a-backup` | Opt-in, one-time importer for older Express-only databases |
 | `npm run migrate:deploy` | Safe MySQL schema deploy only |
 | `npm run seed` | Seed only missing admin/settings/options |
-| `npm run test` | API integration tests (MariaDB WASM) + frontend typecheck |
+| `npm run test` | API integration tests (MariaDB WASM) + frontend interaction tests + typecheck |
 | `npm run typecheck` | Backend and frontend TypeScript checks |
 | `npm run build` | Compile backend + build frontend into `frontend/dist` |
 | `npm start` | Serve API and built frontend with Node (requires MySQL) |
+
+Frontend interaction tests cover the shared PIN/book user-creation form, legacy create-link redirect, edit-page preservation, header navigation, Escape/outside-click dismissal, staff navigation restrictions, and logout. Run them separately with `npm --prefix frontend test`.
 
 The integration suite covers session/CSRF/RBAC, PIN and legacy password migration, Books/back-date limits, monetary precision, idempotency, approvals/rejections/races, reversals, PDF/CSV, and importing the earlier Express schema without overwriting existing rows. It runs without a MySQL service; **a real MySQL deployment must still be backed up and tested with your own data**.
 

@@ -1,9 +1,9 @@
 import { Prisma } from '@prisma/client';
-import type { Db, Tx } from '../db/prisma.ts';
+import { prisma, type Db, type Tx } from '../db/prisma.ts';
 import { audit } from '../lib/audit.ts';
 import { dbDateToIso, isoDateToDbDate } from '../lib/dates.ts';
 import { errors } from '../lib/errors.ts';
-import { formatMoney } from '../lib/money.ts';
+import { formatMoney, money, ZERO } from '../lib/money.ts';
 import { nullableString, num } from '../lib/validation.ts';
 
 export const transactionInclude = {
@@ -138,4 +138,20 @@ export async function lockEntry(tx: Tx, entryId: bigint) {
   const rows = await tx.$queryRaw<Array<{ id: bigint }>>`SELECT id FROM transactions WHERE id = ${entryId} FOR UPDATE`;
   if (!rows.length) throw errors.notFound('Transaction not found.');
   return loadTransaction(tx, entryId);
+}
+
+/** Monetary totals cover the whole filtered result, not just the current page. */
+export async function transactionTotals(where: Prisma.TransactionWhereInput) {
+  const rows = await prisma.transaction.groupBy({
+    by: ['kind'], where: { AND: [where, { approvalStatus: 'APPROVED' }] },
+    _sum: { amount: true }, _count: { _all: true },
+  });
+  let deposits = ZERO, withdrawals = ZERO, approvedEntries = 0;
+  for (const row of rows) {
+    if (row.kind === 'DEPOSIT') deposits = deposits.plus(money(row._sum.amount ?? '0'));
+    else withdrawals = withdrawals.plus(money(row._sum.amount ?? '0'));
+    approvedEntries += row._count._all;
+  }
+  return { deposits: formatMoney(deposits), withdrawals: formatMoney(withdrawals),
+    net: formatMoney(deposits.minus(withdrawals)), approvedEntries };
 }
