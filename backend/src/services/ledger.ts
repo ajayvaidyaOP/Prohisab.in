@@ -8,7 +8,7 @@ import type { Actor } from '../middleware/auth.ts';
 import { describeBalance, summary } from './accounts.ts';
 import { descriptionOf } from './transactions.ts';
 
-function ledgerView(row: Transaction & { book: { name: string } | null; createdBy: { name: string } | null }, running: ReturnType<typeof money>) {
+function ledgerView(row: Transaction & { book: { name: string } | null; user: { name: string } }, running: ReturnType<typeof money>) {
   const isReversal = row.reversalOfId !== null;
   const description = descriptionOf(row);
   return {
@@ -22,8 +22,8 @@ function ledgerView(row: Transaction & { book: { name: string } | null; createdB
     notes: description, reversalOfId: num(row.reversalOfId), reversedById: num(row.reversedById),
     isReversal, isReversed: row.reversedById !== null, approvalStatus: row.approvalStatus,
     reviewedAt: row.reviewedAt?.toISOString() ?? null, rejectionReason: row.rejectionReason,
-    runningBalance: formatMoney(running), crossSide: false, createdAt: row.createdAt.toISOString(),
-    bookId: num(row.bookId), bookName: row.book?.name ?? null, staffName: row.createdBy?.name ?? null,
+    runningBalance: formatMoney(running), crossSide: false, createdAt: row.createdAt.toISOString(), editedAt: row.editedAt?.toISOString() ?? null,
+    bookId: num(row.bookId), bookName: row.book?.name ?? null, staffName: row.user.name,
     customerId: row.customerId, bankDetails: row.bankDetails,
   };
 }
@@ -42,7 +42,7 @@ export async function getLedger(userId: bigint, query: Record<string, unknown>, 
   }
   const rows = await prisma.transaction.findMany({ where: {
     userId, ...(range.where ? { entryDate: range.where } : {}),
-  }, include: { book: { select: { name: true } }, createdBy: { select: { name: true } } },
+  }, include: { book: { select: { name: true } }, user: { select: { name: true } } },
   orderBy: [{ entryDate: 'asc' }, { id: 'asc' }], take: 20_001 });
   if (rows.length > 20_000) throw errors.badRequest('Too many ledger entries. Narrow the date range.');
   let running = money(brought), increases = ZERO, decreases = ZERO, entryCount = 0;

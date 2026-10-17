@@ -1,3 +1,5 @@
+import { EntryTable } from '../components/EntryTable';
+import { DeleteEntryDialog } from '../components/DeleteEntryDialog';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -5,7 +7,6 @@ import {
   ArrowUpRight,
   History,
   Loader2,
-  Pencil,
   Plus,
   ReceiptText,
   Scale,
@@ -16,15 +17,13 @@ import { useMe } from '../lib/auth';
 import {
   cleanAmountInput,
   formatAmount,
-  formatTime,
   isPositiveAmount,
   toDisplayDate,
 } from '../lib/format';
-import { invalidateFinancial, useSettings } from '../lib/queries';
+import { invalidateFinancial, useIdempotentKey, useSettings } from '../lib/queries';
 import type { LedgerEntry } from '../lib/types';
 import {
   Alert,
-  Badge,
   Button,
   Card,
   Dialog,
@@ -34,8 +33,6 @@ import {
   SkeletonRows,
 } from '../components/ui';
 
-/** Entries can be edited for 1 hour after creation (matches the portal's edit window). */
-const EDIT_WINDOW_MS = 60 * 60_000;
 const MAX_HISTORY_ENTRIES = 500;
 const HISTORY_PAGE_SIZE = 100;
 
@@ -71,11 +68,6 @@ function PortalStatCard({ label, value, icon: Icon, tone }: { label: string; val
   );
 }
 
-function isEntryEditable(entry: LedgerEntry): boolean {
-  if (entry.isReversal || entry.isReversed || entry.approvalStatus === 'REJECTED') return false;
-  return Date.parse(entry.createdAt) + EDIT_WINDOW_MS > Date.now();
-}
-
 export default function UserPortalPage() {
   const me = useMe();
   const settings = useSettings();
@@ -84,7 +76,6 @@ export default function UserPortalPage() {
   const accountId = me.data?.accountId;
   const staffId = me.data?.id ?? '—';
   const symbol = settings.data?.business.currencySymbol ?? '₹';
-  const timezone = settings.data?.business.timezone ?? 'Asia/Kolkata';
   const today = settings.data?.today ?? new Date().toISOString().slice(0, 10);
   const entryOptions =
     settings.data?.business.userEntryOptions && settings.data.business.userEntryOptions.length > 0
@@ -126,6 +117,7 @@ export default function UserPortalPage() {
   }, [settings.data?.today, historyDatesInitialized]);
 
   // Edit entry dialog state
+  const [deleting, setDeleting] = useState<LedgerEntry | null>(null);
   const [editing, setEditing] = useState<LedgerEntry | null>(null);
   const [editBook, setEditBook] = useState('');
   const [editDate, setEditDate] = useState('');
@@ -193,9 +185,7 @@ export default function UserPortalPage() {
       invalidateFinancial(queryClient, accountId!);
       const kindLabel = entryKind === 'DEPOSIT' ? 'Deposit (+)' : 'Withdrawal (-)';
       setSuccessMessage(
-        entryKind === 'DEPOSIT'
-          ? `${kindLabel} of ${formatAmount(res.transaction.amount, symbol)} submitted!`
-          : `${kindLabel} of ${formatAmount(res.transaction.amount, symbol)} submitted! Status: Pending Admin Approval.`,
+        `${kindLabel} of ${formatAmount(res.transaction.amount, symbol)} submitted! Balance updated.`,
       );
       setAmount('');
       setCustomerId('');
@@ -208,12 +198,14 @@ export default function UserPortalPage() {
     },
   });
 
+  const editKey = useIdempotentKey();
   const editMutation = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
-      api.transactions.update(editing!.id, body, newIdempotencyKey()),
+      api.transactions.update(editing!.id, body, editKey.keyFor({ id: editing!.id, ...body })),
     onSuccess: (res) => {
       invalidateFinancial(queryClient, accountId!);
       setSuccessMessage(`Entry #${res.transaction.id} updated.`);
+      editKey.reset();
       setEditing(null);
     },
     onError: (err) => {
@@ -341,7 +333,7 @@ export default function UserPortalPage() {
       {formError ? <Alert tone="error">{formError}</Alert> : null}
 
       {/* Account summary */}
-      <p className="text-xs font-medium text-slate-500">All-time business · Approved deposits and withdrawals</p>
+      <p className="text-xs font-medium text-slate-500">All-time business · Deposits and withdrawals</p>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <PortalStatCard label="Total Deposit" value={formatAmount(account.totalUserPaid, symbol)} icon={ArrowDownLeft} tone="emerald" />
         <PortalStatCard label="Total Withdrawal" value={formatAmount(account.totalAdminPaid, symbol)} icon={ArrowUpRight} tone="rose" />
@@ -531,7 +523,7 @@ export default function UserPortalPage() {
         {ledgerQuery.isPending || ledgerQuery.isFetching ? <SkeletonRows rows={4} cols={4} />
           : ledgerQuery.isError ? <div className="p-5"><ErrorState message={ledgerQuery.error.message} onRetry={() => void ledgerQuery.refetch()} /></div>
           : totals && pagination && <>
-        <p className="px-5 pt-4 text-xs text-slate-500">Selected-period business · Deposit, withdrawal and net count approved entries only. Total Entries includes all matching statuses. Totals cover the full date range, even when only the latest 500 entries are shown.</p>
+        <p className="px-5 pt-4 text-xs text-slate-500">Selected-period business · Deposits and withdrawals count immediately. Historical rejected entries are excluded from amounts. Totals cover the full date range, even when only the latest 500 entries are shown.</p>
         <div className="grid grid-cols-1 gap-4 border-b border-slate-200 px-5 py-4 sm:grid-cols-2 xl:grid-cols-4">
           <PortalStatCard label="Total Deposit" value={formatAmount(totals.increases, symbol)} icon={ArrowDownLeft} tone="emerald" />
           <PortalStatCard label="Total Withdrawal" value={formatAmount(totals.decreases, symbol)} icon={ArrowUpRight} tone="rose" />
@@ -542,74 +534,20 @@ export default function UserPortalPage() {
         {history.length === 0 ? (
           <p className="px-5 py-10 text-center text-sm font-medium text-slate-500">No entries found.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-[#f3f6ff] text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">Ledger date / Time ({timezone})</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Book</th>
-                  <th className="px-4 py-3">Staff</th>
-                  <th className="px-4 py-3">Customer ID</th>
-                  <th className="px-4 py-3">Type</th>
-                  <th className="px-4 py-3 text-right">Amount</th>
-                  <th className="px-4 py-3">Bank account</th>
-                  <th className="px-4 py-3">Edit status</th>
-                  <th className="px-4 py-3">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
-                {history.map((row) => {
-                  const isDeposit = row.direction === 'INCREASE';
-                  const editable = isEntryEditable(row);
-                  return (
-                    <tr key={row.id} className="hover:bg-slate-50/80">
-                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-700">
-                        <div>{toDisplayDate(row.entryDate)}</div>
-                        <div className="mt-1 text-slate-400" title="Time recorded">{formatTime(row.createdAt, timezone)}</div>
-                      </td>
-                      <td className="px-4 py-3"><Badge tone={row.approvalStatus === 'APPROVED' ? 'emerald' : row.approvalStatus === 'REJECTED' ? 'rose' : 'amber'}>{row.approvalStatus ?? 'APPROVED'}</Badge></td>
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-700">{row.bookName ?? '—'}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-700">{row.staffName ?? '—'}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-700">{row.customerId ?? '—'}</td>
-                      <td className="whitespace-nowrap px-4 py-3">
-                        {isDeposit ? <Badge tone="emerald">+ Deposit</Badge> : <Badge tone="rose">- Withdrawal</Badge>}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right font-mono font-semibold">
-                        <span className={isDeposit ? 'text-emerald-700' : 'text-rose-700'}>
-                          {isDeposit ? '+' : '-'} {formatAmount(row.amount, symbol)}
-                        </span>
-                      </td>
-                      <td className="max-w-[12rem] truncate px-4 py-3 text-xs text-slate-600">{row.bankDetails ?? '—'}</td>
-                      <td className="whitespace-nowrap px-4 py-3">
-                        {editable ? <Badge tone="emerald">Editable</Badge> : <Badge tone="slate">Locked</Badge>}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3">
-                        {editable ? (
-                          <Button variant="secondary" className="!px-2.5 !py-1.5 text-xs" onClick={() => openEdit(row)}>
-                            <Pencil className="h-3.5 w-3.5" /> Edit
-                          </Button>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <EntryTable entries={history} symbol={symbol} onEdit={openEdit} onDelete={setDeleting} />
         )}
 
         <div className="border-t border-slate-200 px-5 py-3 text-xs text-slate-500">
           Up to {MAX_HISTORY_ENTRIES} recent matching entries shown ({pagination.total} total in selected dates).
-          Entries can be edited for 1 hour after creation.
+          Entries can be edited or deleted for 1 hour after creation.
         </div>
         </>}
       </Card>
 
+      {deleting && <DeleteEntryDialog key={deleting.id} entry={deleting} accountId={accountId ?? undefined} symbol={symbol} onClose={() => setDeleting(null)} />}
+
       {/* Edit entry dialog (within 1 hour of creation) */}
-      <Dialog open={editing !== null} title="Edit Entry" onClose={() => setEditing(null)}>
+      <Dialog open={editing !== null} title="Edit Entry" onClose={() => { if (!editMutation.isPending) setEditing(null); }}>
         {editing ? (
           <form onSubmit={submitEdit} className="space-y-4">
             {editError ? <Alert tone="error">{editError}</Alert> : null}
@@ -687,7 +625,7 @@ export default function UserPortalPage() {
               )}
             </Field>
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="secondary" onClick={() => setEditing(null)}>
+              <Button type="button" variant="secondary" disabled={editMutation.isPending} onClick={() => setEditing(null)}>
                 Cancel
               </Button>
               <Button type="submit" loading={editMutation.isPending}>

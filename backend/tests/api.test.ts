@@ -288,7 +288,7 @@ test('own entries can be edited within 1 hour; window, ownership and reversals l
   assert.equal(expiredAdmin.body.error.code, 'EDIT_WINDOW_EXPIRED');
 });
 
-test('reject/approve race decides at most once, and PIN/password resets revoke sessions', async () => {
+test('staff withdrawals post immediately, legacy review cannot change them, and resets revoke sessions', async () => {
   const pending = await write('/transactions', staff, { accountId: staffId, type: 'WITHDRAWAL',
     entryDate: today, amount: '1.00', optionName: 'Cash Withdrawal', bookId }, 'race-entry');
   assert.equal(pending.status, 201, JSON.stringify(pending.body));
@@ -297,9 +297,10 @@ test('reject/approve race decides at most once, and PIN/password resets revoke s
     write(`/transactions/${txId}/approve`, admin, {}, 'race-approve'),
     write(`/transactions/${txId}/reject`, admin, { reason: 'not valid' }, 'race-reject'),
   ]);
-  assert.deepEqual([approve.status, reject.status].sort(), [200, 409]);
+  assert.equal(pending.body.transaction.approvalStatus, 'APPROVED');
+  assert.deepEqual([approve.status, reject.status], [409, 409]);
   const actual = await request(app).get(`/api/transactions/${txId}`).set('Cookie', admin);
-  assert.ok(['APPROVED', 'REJECTED'].includes(actual.body.approvalStatus));
+  assert.equal(actual.body.approvalStatus, 'APPROVED');
   const changes = await request(app).put(`/api/accounts/${staffId}/pin`).set(csrf).set('Cookie', admin)
     .send({ pin: '3456' });
   assert.equal(changes.status, 200, JSON.stringify(changes.body));
@@ -326,7 +327,7 @@ test('reject/approve race decides at most once, and PIN/password resets revoke s
   assert.equal((await request(app).get('/api/auth/me').set('Cookie', staff)).status, 401);
   const audit = await request(app).get('/api/audit-logs?pageSize=100').set('Cookie', admin);
   assert.equal(audit.status, 200);
-  assert.ok(audit.body.items.some((row: { action: string }) => row.action === 'TRANSACTION_APPROVED'));
+  assert.ok(audit.body.items.some((row: { action: string }) => row.action === 'TRANSACTION_CREATED'));
 });
 
 test('legacy Spring plaintext PIN upgrades in place; Spring bcrypt and old Argon2 passwords work', async () => {
@@ -627,4 +628,75 @@ test('staff can review any past history date without back-date permission, but o
     type: 'DEPOSIT', entryDate: past, amount: '1.00', optionName: 'Cash Deposit' });
   assert.equal(deniedPost.status, 403);
   assert.equal((await request(app).get(`/api/accounts/${own.id}/ledger?from=${today}&to=${past}`).set('Cookie', auth)).status, 400);
+});
+
+test('direct posting, persisted edit status and audited deletion keep every total consistent', async () => {
+  const created = await write('/accounts', admin, { name: 'Direct Entry Staff', pin: '6819' }, 'direct-staff-create');
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const accountId = created.body.account.id;
+  const login = await request(app).post('/api/auth/pin-login').set(csrf).send({ pin: '6819' });
+  assert.equal(login.status, 200);
+  const own = cookie(login);
+  const post = (type: string, amount: string, key: string) => write('/transactions', own,
+    { accountId, type, entryDate: today, amount, optionName: type === 'DEPOSIT' ? 'Cash Deposit' : 'Cash Withdrawal' }, key);
+  const deposit = await post('DEPOSIT', '100.10', 'direct-deposit');
+  const withdrawal = await post('WITHDRAWAL', '25.05', 'direct-withdrawal');
+  assert.equal(deposit.status, 201);
+  assert.equal(withdrawal.status, 201);
+  assert.equal(withdrawal.body.transaction.approvalStatus, 'APPROVED');
+  assert.equal(withdrawal.body.account.pendingBalance, '75.05');
+  assert.equal(withdrawal.body.transaction.editedAt, null);
+  const withdrawalId = withdrawal.body.transaction.id;
+  const patch = (body: object) => request(app).patch(`/api/transactions/${withdrawalId}`)
+    .set(csrf).set('Cookie', own).set('Idempotency-Key', 'direct-edit-key').send(body);
+  const edited = await patch({ amount: '30.10', customerId: 'Grey 1399', bankDetails: 'Irshad S' });
+  assert.equal(edited.status, 200, JSON.stringify(edited.body));
+  assert.ok(edited.body.transaction.editedAt);
+  assert.equal(edited.body.account.pendingBalance, '70.00');
+  assert.equal((await patch({ amount: '30.10', customerId: 'Grey 1399', bankDetails: 'Irshad S' })).body.replayed, true);
+  assert.equal((await patch({ amount: '31.10' })).body.error.code, 'IDEMPOTENCY_KEY_REUSED');
+  const ledger = await request(app).get(`/api/accounts/${accountId}/ledger`).set('Cookie', own);
+  const row = ledger.body.entries.find((entry: { id: number }) => entry.id === withdrawalId);
+  assert.equal(row.editedAt, edited.body.transaction.editedAt);
+  assert.equal(row.staffName, 'Direct Entry Staff');
+  const dashboard = await request(app).get(`/api/dashboard?userId=${accountId}`).set('Cookie', admin);
+  assert.equal(dashboard.body.pendingEntries.length, 0);
+  assert.equal(dashboard.body.userLedgerTotals.totalPending, '70.00');
+  const remove = (entry: number, auth = own, key = 'direct-delete') => request(app)
+    .delete(`/api/transactions/${entry}`).set(csrf).set('Cookie', auth).set('Idempotency-Key', key);
+  assert.equal((await request(app).delete(`/api/transactions/${withdrawalId}`).set('Cookie', own)).status, 403);
+  assert.equal((await remove(entryId)).status, 404); // Another staff member's entry.
+  const deleted = await remove(withdrawalId);
+  assert.equal(deleted.status, 200, JSON.stringify(deleted.body));
+  assert.equal(deleted.body.account.pendingBalance, '100.10');
+  assert.equal((await remove(withdrawalId)).body.replayed, true);
+  assert.equal((await remove(withdrawalId, own, 'different-delete')).status, 404);
+  assert.equal(await prisma.transaction.findUnique({ where: { id: BigInt(withdrawalId) } }), null);
+  const logs = await prisma.auditLog.findMany({ where: { entityId: String(withdrawalId), action: 'TRANSACTION_DELETED' } });
+  assert.equal(logs.length, 1);
+  assert.equal(JSON.parse(logs[0].details!).amount, '30.10');
+  const report = await request(app).get(`/api/transactions?accountId=${accountId}`).set('Cookie', admin);
+  assert.equal(report.body.pagination.total, 1);
+  assert.equal(report.body.summary.net, '100.10');
+  const combined = await request(app).get(`/api/transactions/multi-report?summary=true&userIds=${accountId}`).set('Cookie', admin);
+  assert.equal(combined.body.summary.net, '100.10');
+  const afterDelete = await request(app).get(`/api/accounts/${accountId}/ledger`).set('Cookie', own);
+  assert.equal(afterDelete.body.totals.net, '100.10');
+  const adminDelete = await remove(deposit.body.transaction.id, admin, 'admin-delete-own');
+  assert.equal(adminDelete.status, 200);
+  assert.equal(adminDelete.body.account.pendingBalance, '0.00');
+
+  const locked = await post('DEPOSIT', '4.00', 'locked-delete');
+  const lockedId = locked.body.transaction.id;
+  await prisma.transaction.update({ where: { id: BigInt(lockedId) }, data: { createdAt: new Date(Date.now() - 61 * 60_000) } });
+  assert.equal((await remove(lockedId, own, 'expired-delete')).body.error.code, 'EDIT_WINDOW_EXPIRED');
+  assert.equal((await remove(lockedId, admin, 'expired-admin-delete')).body.error.code, 'EDIT_WINDOW_EXPIRED');
+  const reversal = await write(`/transactions/${lockedId}/reversal`, admin, { reason: 'Testing linked protection' }, 'linked-protection');
+  assert.equal(reversal.status, 200);
+  assert.equal((await remove(lockedId, own, 'linked-delete')).body.error.code, 'REVERSAL_ENTRY');
+  assert.equal((await remove(reversal.body.reversal.id, admin, 'reverse-delete')).body.error.code, 'REVERSAL_ENTRY');
+
+  const inactive = await post('DEPOSIT', '2.00', 'inactive-delete');
+  await prisma.user.update({ where: { id: BigInt(accountId) }, data: { isActive: false } });
+  assert.equal((await remove(inactive.body.transaction.id, admin, 'inactive-remove')).body.error.code, 'ACCOUNT_INACTIVE');
 });

@@ -183,7 +183,7 @@ const editSchema = z.object({
   customerId: z.string().max(60).nullish(), bankDetails: z.string().max(255).nullish(),
 });
 /**
- * Edit an own entry within 1 hour of creation (admins may edit any entry).
+ * Edit an own entry within 1 hour of creation (admins may edit entries belonging to any user).
  * Only pending/approved entries that are not reversals and not yet reversed can be edited;
  * money columns are recalculated from the ledger rows, so an edit stays consistent everywhere.
  */
@@ -193,13 +193,13 @@ transactionsRouter.patch('/:id', async (req, res) => {
   const body = parse(editSchema, req.body);
   const today = await businessToday();
   const result = await withIdempotency(`PATCH /api/transactions/${entryId}`, viewer.id,
-    req.get('Idempotency-Key') || undefined, { entryId: String(entryId) }, async (tx) => {
-      const current = await loadTransaction(tx, entryId);
+    req.get('Idempotency-Key') || undefined, { entryId: String(entryId), ...body }, async (tx) => {
+      const current = await lockEntry(tx, entryId);
       if (viewer.role !== 'ADMIN' && current.userId !== viewer.id) throw errors.notFound('Transaction not found.');
       if (current.reversalOfId !== null) throw errors.unprocessable('REVERSAL_ENTRY', 'Reversal entries cannot be edited.');
       if (current.reversedById !== null) throw errors.unprocessable('ALREADY_REVERSED', 'This entry has already been reversed.');
       if (current.approvalStatus === 'REJECTED') throw errors.unprocessable('REJECTED_ENTRY', 'Rejected entries cannot be edited.');
-      if (Date.now() - current.createdAt.getTime() > EDIT_WINDOW_MS) {
+      if (Date.now() - current.createdAt.getTime() >= EDIT_WINDOW_MS) {
         throw errors.unprocessable('EDIT_WINDOW_EXPIRED', 'Entries can only be edited for 1 hour after creation.');
       }
       const target = await tx.user.findUniqueOrThrow({ where: { id: current.userId } });
@@ -219,13 +219,13 @@ transactionsRouter.patch('/:id', async (req, res) => {
         ? nullableString(body.detail ?? body.description) : current.detail;
       const entryDate = dateParam(body.entryDate, 'entryDate') ?? dbDateToIso(current.entryDate);
       if (entryDate !== dbDateToIso(current.entryDate)) {
-        checkPostingDate(entryDate, today, 'USER', target.backDateAllowedDate ? dbDateToIso(target.backDateAllowedDate) : null);
+        checkPostingDate(entryDate, today, viewer.role, target.backDateAllowedDate ? dbDateToIso(target.backDateAllowedDate) : null);
       }
       const bookId = body.bookId !== undefined ? (body.bookId ? id(body.bookId, 'bookId') : null) : current.bookId;
-      await validateBook(tx, current.userId, bookId, true);
+      await validateBook(tx, current.userId, bookId, viewer.role === 'USER');
 
       const updated = await tx.transaction.update({ where: { id: entryId }, data: {
-        kind, entryDate: isoDateToDbDate(entryDate), amount, optionName, detail,
+        kind, entryDate: isoDateToDbDate(entryDate), amount, optionName, detail, editedAt: new Date(),
         paymentMethod: body.paymentMethod !== undefined
           ? nullableString(body.paymentMethod)?.toUpperCase() ?? null : current.paymentMethod,
         referenceNumber: body.referenceNumber !== undefined ? nullableString(body.referenceNumber) : current.referenceNumber,
@@ -238,6 +238,38 @@ transactionsRouter.patch('/:id', async (req, res) => {
         previousOption: current.optionName, option: optionName,
       });
       return { status: 200, body: { transaction: serializeTransaction(updated), account: await summary(tx, current.userId) } };
+    });
+  res.status(result.status).json(result.body);
+});
+
+/** Delete an own entry within the same window as editing; admins can manage entries belonging to any user. */
+transactionsRouter.delete('/:id', async (req, res) => {
+  const entryId = id(req.params.id), viewer = actor(req);
+  const result = await withIdempotency(`DELETE /api/transactions/${entryId}`, viewer.id,
+    req.get('Idempotency-Key') || undefined, { entryId: String(entryId) }, async (tx) => {
+      const row = await lockEntry(tx, entryId);
+      if (viewer.role !== 'ADMIN' && row.userId !== viewer.id) throw errors.notFound('Transaction not found.');
+      if (row.reversalOfId !== null || row.reversedById !== null) {
+        throw errors.unprocessable('REVERSAL_ENTRY', 'Linked reversal entries cannot be deleted.');
+      }
+      if (Date.now() - row.createdAt.getTime() >= EDIT_WINDOW_MS) {
+        throw errors.unprocessable('EDIT_WINDOW_EXPIRED', 'Entries can only be deleted for 1 hour after creation.');
+      }
+      const target = await tx.user.findUniqueOrThrow({ where: { id: row.userId } });
+      if (!target.isActive) throw errors.unprocessable('ACCOUNT_INACTIVE', 'Reactivate this account before deleting entries.');
+      const financialRecord = {
+        userId: num(row.userId), kind: row.kind, amount: formatMoney(row.amount),
+        entryDate: dbDateToIso(row.entryDate), bookId: num(row.bookId),
+        approvalStatus: row.approvalStatus, createdAt: row.createdAt.toISOString(),
+        createdById: num(row.createdById), editedAt: row.editedAt?.toISOString() ?? null,
+      };
+      const snapshot = { ...financialRecord, option: row.optionName, detail: row.detail,
+        customerId: row.customerId, bankDetails: row.bankDetails,
+        paymentMethod: row.paymentMethod, referenceNumber: row.referenceNumber };
+      await audit(tx, 'TRANSACTION_DELETED', 'LedgerTransaction', entryId, viewer.id,
+        JSON.stringify(snapshot).length <= 2000 ? snapshot : { ...financialRecord, extraDetailsOmitted: true });
+      await tx.transaction.delete({ where: { id: entryId } });
+      return { status: 200, body: { deletedId: num(entryId)!, account: await summary(tx, row.userId) } };
     });
   res.status(result.status).json(result.body);
 });

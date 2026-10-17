@@ -3,7 +3,7 @@ import mariadb, { type Connection } from 'mariadb';
 import bcrypt from 'bcryptjs';
 import { env } from '../config/env.ts';
 import { buildPoolConfig } from '../config/database.ts';
-import { migrate } from './migrate.ts';
+import { migrate, migrationSql, statements, DIRECT_ENTRIES } from './migrate.ts';
 
 /**
  * One-time import from the 2025 Express/Prisma schema into the Spring-compatible
@@ -166,6 +166,10 @@ export async function importLegacy(conn: Connection) {
         required(row.entityType, 'audit entity type', 60),
         required(mappedReference ?? row.entityId, 'audit entity id', 60),
         actor ?? null, limited(details, 'audit details', 2000), time(row.createdAt)]);
+    }
+    // Import preserves rejected history, but no pending entries remain in the direct-posting app.
+    for (const sql of statements(migrationSql(DIRECT_ENTRIES)).filter((sql) => !sql.startsWith('ALTER TABLE'))) {
+      await conn.query(sql);
     }
     if (settings.length) {
       const source = settings[0];

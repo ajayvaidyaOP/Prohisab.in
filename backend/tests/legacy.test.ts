@@ -70,13 +70,13 @@ test('imports pre-Spring Express rows, opening balances, reversals, settings and
   ]);
   assert.equal(entries[3].reversal_of_id, 3);
   assert.equal(entries[2].reversed_by_id, 4);
-  assert.equal(entries[4].approval_status, 'PENDING');
-  assert.equal(db.query('SELECT COUNT(*) AS total FROM audit_logs')[0].total, 1);
+  assert.equal(entries[4].approval_status, 'APPROVED');
+  assert.equal(db.query('SELECT COUNT(*) AS total FROM audit_logs')[0].total, 2);
   assert.equal(db.query('SELECT entity_id FROM audit_logs')[0].entity_id, '2'); // Account 1 → new User 2.
   assert.equal(db.query('SELECT business_name FROM app_settings')[0].business_name, 'Legacy Shop');
   assert.equal(db.query('SELECT COUNT(*) AS total FROM entry_options')[0].total, 2);
   assert.equal(db.query('SELECT COUNT(*) AS total FROM sessions')[0].total, 0);
-  assert.equal(db.query('SELECT COUNT(*) AS total FROM node_schema_migrations')[0].total, 3);
+  assert.equal(db.query('SELECT COUNT(*) AS total FROM node_schema_migrations')[0].total, 4);
   await assert.rejects(importLegacy(conn), /already has users or transactions/);
   assert.equal(db.query('SELECT COUNT(*) AS total FROM transactions')[0].total, 5);
 });

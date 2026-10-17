@@ -295,6 +295,10 @@ export const api = {
         mapTransactionInput(body),
         idempotencyKey,
       ),
+    delete: (id: number, idempotencyKey: string) =>
+      request<{ deletedId: number; account: AccountSummary; replayed: boolean }>(
+        'DELETE', `/transactions/${id}`, { idempotencyKey },
+      ),
     approve: (id: number, idempotencyKey: string) =>
       post<{ transaction: Transaction; account: AccountSummary; alreadyApproved?: boolean; replayed: boolean }>(
         `/transactions/${id}/approve`,

@@ -40,7 +40,7 @@ export function serializeTransaction(row: TransactionWithRelations) {
     reviewedAt: row.reviewedAt?.toISOString() ?? null, rejectionReason: row.rejectionReason,
     account: { id: num(row.user.id)!, accountCode: row.user.accountCode, name: row.user.name,
       type: 'CUSTOMER' as const, typeLabel: 'User' },
-    createdById: num(row.createdById), createdAt: row.createdAt.toISOString(),
+    createdById: num(row.createdById), createdAt: row.createdAt.toISOString(), editedAt: row.editedAt?.toISOString() ?? null,
   };
 }
 
@@ -114,16 +114,15 @@ export async function insertEntry(tx: Tx, input: NewEntry, actorId: bigint, role
     target.backDateAllowedDate ? dbDateToIso(target.backDateAllowedDate) : null);
   const optionName = await validateOption(tx, input.optionName);
   await validateBook(tx, input.accountId, input.bookId ?? null, role === 'USER');
-  // Deposits are posted immediately for staff; withdrawals remain queued for review.
-  const pending = role === 'USER' && input.kind === 'WITHDRAWAL';
+  // Both kinds post immediately. Keep the legacy status field for historical reports.
   const row = await tx.transaction.create({ data: {
     userId: input.accountId, kind: input.kind, entryDate: isoDateToDbDate(input.entryDate),
     amount: input.amount, optionName, detail: nullableString(input.detail),
     paymentMethod: nullableString(input.paymentMethod)?.toUpperCase() ?? null,
     referenceNumber: nullableString(input.referenceNumber), bookId: input.bookId ?? null,
     customerId: nullableString(input.customerId), bankDetails: nullableString(input.bankDetails),
-    approvalStatus: pending ? 'PENDING' : 'APPROVED',
-    reviewedById: pending ? null : actorId, reviewedAt: pending ? null : new Date(),
+    approvalStatus: 'APPROVED',
+    reviewedById: actorId, reviewedAt: new Date(),
     createdById: actorId,
   }, include: transactionInclude });
   await audit(tx, 'TRANSACTION_CREATED', 'LedgerTransaction', row.id, actorId, {

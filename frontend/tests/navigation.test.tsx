@@ -98,6 +98,19 @@ describe('one create-user flow', () => {
 });
 
 describe('header navigation drawer', () => {
+  it('has no desktop sidebar or reserved sidebar space; navigation only opens from the header menu', async () => {
+    const user = userEvent.setup();
+    const { container } = renderApp('/');
+    await screen.findByRole('heading', { name: 'Dashboard content' });
+    expect(screen.queryByRole('complementary')).toBeNull();
+    expect(screen.queryByRole('navigation')).toBeNull();
+    expect(container.querySelector('[class*="lg:pl-64"]')).toBeNull();
+    expect(screen.getAllByText('Test Business')).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: 'Open navigation menu' }));
+    expect(screen.getAllByRole('navigation')).toHaveLength(1);
+    expect(screen.getByRole('link', { name: 'Dashboard' })).toBeTruthy();
+  });
+
   it('opens all admin navigation and places Logout last, then navigates and closes', async () => {
     const user = userEvent.setup();
     renderApp();

@@ -161,13 +161,13 @@ export default function MultiReportPage() {
             {pdfError && <Alert tone="error">{pdfError}</Alert>}
             <section aria-label="Combined totals" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {[
-                { label: 'Approved collection (+)', value: formatAmount(data.summary.deposits, symbol), tone: 'border-t-emerald-500 text-emerald-700' },
-                { label: 'Approved withdrawal (-)', value: formatAmount(data.summary.withdrawals, symbol), tone: 'border-t-rose-400 text-rose-600' },
+                { label: 'Collection (+)', value: formatAmount(data.summary.deposits, symbol), tone: 'border-t-emerald-500 text-emerald-700' },
+                { label: 'Withdrawal (-)', value: formatAmount(data.summary.withdrawals, symbol), tone: 'border-t-rose-400 text-rose-600' },
                 { label: 'Period net', value: formatAmount(data.summary.net, symbol), tone: 'border-t-blue-500 text-blue-700' },
                 { label: 'Total matching entries', value: String(data.summary.totalEntries), tone: 'border-t-violet-500 text-violet-700' },
               ].map((card) => <Card key={card.label} className={`border-t-[3px] ${card.tone}`}><p className="text-xs font-medium text-slate-500">{card.label}</p><p className="mt-3 break-words text-2xl font-bold tabular-nums">{card.value}</p></Card>)}
             </section>
-            <p className="text-xs text-slate-500">Approved: {data.summary.approvedEntries} · Pending: {data.summary.pendingEntries} ({formatAmount(data.summary.pendingAmount, symbol)}) · Rejected: {data.summary.rejectedEntries}. Pending/rejected amounts are excluded. Approved reversal entries offset the original in the period they were posted.</p>
+            <p className="text-xs text-slate-500">Posted: {data.summary.approvedEntries} · Pending: {data.summary.pendingEntries} ({formatAmount(data.summary.pendingAmount, symbol)}) · Rejected: {data.summary.rejectedEntries}. Pending/rejected amounts are excluded. Reversal entries offset the original in the period they were posted.</p>
             <ComparisonTable title="Staff-wise comparison" rows={data.staffSummary.map((row) => ({ ...row, key: String(row.userId), ledger: row.userId }))} symbol={symbol} />
             <ComparisonTable title="Book-wise collection" rows={data.bookSummary.map((row) => ({ ...row, key: String(row.bookId ?? 'unassigned') }))} symbol={symbol} />
             <Card padded={false} className="overflow-hidden">
@@ -177,7 +177,7 @@ export default function MultiReportPage() {
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-slate-200 text-sm">
                       <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"><tr>
-                        {['Ledger date', 'Submitted', 'Staff', 'Book', 'Customer ID', 'Type', 'Amount', 'Bank / Reference', 'Status'].map((label) => <th key={label} scope="col" className={`px-4 py-3 ${label === 'Amount' ? 'text-right' : ''}`}>{label}</th>)}
+                        {['Ledger date', 'Submitted', 'Staff', 'Book', 'Customer ID', 'Type', 'Amount', 'Bank / Reference', 'Edit status'].map((label) => <th key={label} scope="col" className={`px-4 py-3 ${label === 'Amount' ? 'text-right' : ''}`}>{label}</th>)}
                       </tr></thead>
                       <tbody className="divide-y divide-slate-100">{history.map((row) => <tr key={row.id} className="align-top hover:bg-slate-50">
                         <td className="whitespace-nowrap px-4 py-3">{formatDate(row.entryDate)}</td>
@@ -188,7 +188,7 @@ export default function MultiReportPage() {
                         <td className="px-4 py-3"><Badge tone={row.direction === 'INCREASE' ? 'emerald' : 'rose'}>{row.direction === 'INCREASE' ? 'Deposit' : 'Withdrawal'}</Badge>{row.isReversal && <p className="mt-1 text-xs text-amber-700">Reversal</p>}{row.isReversed && <p className="mt-1 text-xs text-slate-500">Reversed</p>}</td>
                         <td className={`whitespace-nowrap px-4 py-3 text-right font-mono ${row.direction === 'INCREASE' ? 'text-emerald-700' : 'text-rose-600'}`}>{row.direction === 'INCREASE' ? '+' : '−'}{formatAmount(row.amount, symbol)}</td>
                         <td className="min-w-32 max-w-56 break-words px-4 py-3">{row.bankDetails || '—'}{row.referenceNumber && <p className="mt-1 text-xs text-slate-500">Ref: {row.referenceNumber}</p>}</td>
-                        <td className="px-4 py-3"><Badge tone={row.approvalStatus === 'APPROVED' ? 'emerald' : row.approvalStatus === 'REJECTED' ? 'rose' : 'amber'}>{row.approvalStatus ?? 'APPROVED'}</Badge></td>
+                        <td className="px-4 py-3">{row.editedAt ? 'Edited' : 'Original'}{row.approvalStatus === 'REJECTED' && <p className="text-xs text-rose-600">Rejected (not counted)</p>}</td>
                       </tr>)}</tbody>
                     </table>
                   </div>
@@ -208,7 +208,7 @@ function ComparisonTable({ title, rows, symbol }: {
   symbol: string;
 }) {
   return <Card padded={false} className="overflow-hidden">
-    <div className="border-b border-slate-200 px-5 py-4"><h2 className="font-semibold text-slate-900">{title}</h2><p className="mt-1 text-xs text-slate-500">Approved amounts in the selected period. Entries includes all statuses.</p></div>
+    <div className="border-b border-slate-200 px-5 py-4"><h2 className="font-semibold text-slate-900">{title}</h2><p className="mt-1 text-xs text-slate-500">Posted amounts in the selected period. Entries includes all statuses.</p></div>
     {!rows.length ? <p className="p-5 text-sm text-slate-500">No matching activity.</p> : <div className="overflow-x-auto"><table className="min-w-full divide-y divide-slate-200 text-sm">
       <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"><tr>
         {['Name', 'Collection (+)', 'Withdrawal (-)', 'Period net', 'Entries', 'Pending', ...(rows.some((row) => row.ledger) ? ['Ledger'] : [])].map((label) => <th key={label} scope="col" className={`px-4 py-3 ${label !== 'Name' && label !== 'Ledger' ? 'text-right' : ''}`}>{label}</th>)}

@@ -103,7 +103,7 @@ model Transaction {
   paymentMethod   String?   @map("payment_method") @db.VarChar(20)
   reversalOfId    BigInt?   @unique(map: "uq_transactions_reversal_of") @map("reversal_of_id") @db.BigInt
   reversedById    BigInt?   @map("reversed_by_id") @db.BigInt
-  approvalStatus  String    @default("PENDING") @map("approval_status") @db.VarChar(10)
+  approvalStatus  String    @default("APPROVED") @map("approval_status") @db.VarChar(10)
   reviewedById    BigInt?   @map("reviewed_by_id") @db.BigInt
   reviewedBy      User?     @relation("ReviewedEntries", fields: [reviewedById], references: [id], onDelete: SetNull, map: "transactions_reviewed_by_fk")
   reviewedAt      DateTime? @map("reviewed_at") @db.DateTime(0)
@@ -116,6 +116,7 @@ model Transaction {
   book            Book?     @relation(fields: [bookId], references: [id], map: "fk_lt_book")
   customerId      String?   @map("customer_id") @db.VarChar(60)
   bankDetails     String?   @map("bank_details") @db.VarChar(255)
+  editedAt        DateTime? @map("edited_at") @db.DateTime(0)
 
   @@index([userId, entryDate, id], map: "transactions_user_date_idx")
   @@index([approvalStatus, createdAt], map: "transactions_status_created_idx")

@@ -24,6 +24,8 @@ const ACTION_LABELS: Record<string, string> = {
   PIN_DISABLED: 'PIN disabled',
   LEDGER_ENTRY_CREATED: 'Entry created',
   TRANSACTION_CREATED: 'Entry created',
+  TRANSACTION_DELETED: 'Entry deleted',
+  TRANSACTION_AUTO_POSTED: 'Entry posted (approval removed)',
   TRANSACTION_APPROVED: 'Entry approved',
   TRANSACTION_REJECTED: 'Entry rejected',
   LEDGER_ENTRY_REVERSED: 'Entry reversed',
