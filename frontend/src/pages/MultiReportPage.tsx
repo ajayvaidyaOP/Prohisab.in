@@ -175,7 +175,7 @@ export default function MultiReportPage() {
               {!history.length ? <EmptyState title="No entries for this selection" description="Try another date range, book or staff selection. Staff with no activity are shown above with zero totals." /> : (
                 <>
                   <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-slate-200 text-sm">
+                    <table className="modern-table min-w-full divide-y divide-slate-200 text-sm">
                       <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"><tr>
                         {['Ledger date', 'Submitted', 'Staff', 'Book', 'Customer ID', 'Type', 'Amount', 'Bank / Reference', 'Edit status'].map((label) => <th key={label} scope="col" className={`px-4 py-3 ${label === 'Amount' ? 'text-right' : ''}`}>{label}</th>)}
                       </tr></thead>
@@ -209,7 +209,7 @@ function ComparisonTable({ title, rows, symbol }: {
 }) {
   return <Card padded={false} className="overflow-hidden">
     <div className="border-b border-slate-200 px-5 py-4"><h2 className="font-semibold text-slate-900">{title}</h2><p className="mt-1 text-xs text-slate-500">Posted amounts in the selected period. Entries includes all statuses.</p></div>
-    {!rows.length ? <p className="p-5 text-sm text-slate-500">No matching activity.</p> : <div className="overflow-x-auto"><table className="min-w-full divide-y divide-slate-200 text-sm">
+    {!rows.length ? <p className="p-5 text-sm text-slate-500">No matching activity.</p> : <div className="overflow-x-auto"><table className="modern-table min-w-full divide-y divide-slate-200 text-sm">
       <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"><tr>
         {['Name', 'Collection (+)', 'Withdrawal (-)', 'Period net', 'Entries', 'Pending', ...(rows.some((row) => row.ledger) ? ['Ledger'] : [])].map((label) => <th key={label} scope="col" className={`px-4 py-3 ${label !== 'Name' && label !== 'Ledger' ? 'text-right' : ''}`}>{label}</th>)}
       </tr></thead>

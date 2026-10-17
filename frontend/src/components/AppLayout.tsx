@@ -39,10 +39,10 @@ function BrandLogo({ url, name }: { url?: string | null; name: string }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [url]);
   if (url && !failed) {
-    return <img src={url} alt={`${name} logo`} onError={() => setFailed(true)} className="h-11 w-11 shrink-0 rounded-xl border border-white/50 bg-white object-contain p-0.5" />;
+    return <img src={url} alt={`${name} logo`} onError={() => setFailed(true)} className="app-brand-logo h-11 w-11 shrink-0 rounded-xl border border-white/50 bg-white object-contain p-0.5" />;
   }
   return (
-    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/50 bg-white/15 text-xl font-black text-white">
+    <span className="app-brand-logo app-brand-monogram flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/50 bg-white/15 text-xl font-black text-white">
       {name.trim().charAt(0).toUpperCase() || 'D'}
     </span>
   );
@@ -96,11 +96,11 @@ export function AppLayout() {
 
 
   return (
-    <div className="min-h-screen bg-[#eef2ff]">
+    <div className="app-shell min-h-screen">
       <div className="flex min-w-0 flex-col">
-        <header className="sticky top-0 z-30 border-b border-indigo-100 bg-[#eef2ff]/95 px-3 pb-2 pt-2 backdrop-blur print:hidden sm:px-5">
-          <div className="mx-auto w-full max-w-7xl">
-            <div className="flex items-center justify-between gap-3 rounded-2xl bg-gradient-to-r from-[#15265d] via-[#243f9b] to-[#354fd0] px-3 py-3 text-white shadow-lg shadow-indigo-900/10 sm:px-5">
+        <header className="app-header sticky top-0 z-30 print:hidden">
+          <div className="app-header-content mx-auto w-full max-w-7xl">
+            <div className="app-topbar flex items-center justify-between gap-3 rounded-2xl bg-gradient-to-r from-[#15265d] via-[#243f9b] to-[#354fd0] px-3 py-3 text-white shadow-lg shadow-indigo-900/10 sm:px-5">
               {/* The brand is the way home: Dashboard for admins, own ledger for staff. */}
               <Link
                 to="/"
@@ -110,7 +110,7 @@ export function AppLayout() {
                 }}
                 aria-label={`${businessName} — go to dashboard`}
                 title="Go to dashboard"
-                className="group -m-1 flex min-w-0 items-center gap-3 rounded-xl p-1 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                className="app-brand-link group -m-1 flex min-w-0 items-center gap-3 rounded-xl p-1 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
               >
                 <BrandLogo url={logoUrl} name={businessName} />
                 <span className="min-w-0">
@@ -125,7 +125,7 @@ export function AppLayout() {
                     <ButtonLink to="/transactions/new" variant="primary" className="!border !border-white/30 !px-3 !py-1.5"><Plus className="h-4 w-4" /> New Entry</ButtonLink>
                   </div>
                 )}
-                <span className="hidden text-sm font-medium sm:inline">{isAdmin ? 'Admin' : 'Staff'}</span>
+                <span className="role-pill"><span className="role-dot" aria-hidden="true" />{isAdmin ? 'Admin' : 'Staff'}</span>
                 <div ref={menuContainer} className="relative" onBlur={(event) => {
                   if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMenuOpen(false);
                 }}>
@@ -136,19 +136,19 @@ export function AppLayout() {
                     aria-expanded={menuOpen}
                     aria-controls={menuId}
                     onClick={() => setMenuOpen((open) => !open)}
-                    className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/30 text-white transition-colors hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                    className="app-menu-button inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/30 text-white transition-colors hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                   >
                     {menuOpen ? <X className="h-6 w-6" aria-hidden="true" /> : <Menu className="h-6 w-6" aria-hidden="true" />}
                   </button>
                   {menuOpen && (
-                    <div ref={menuPanel} id={menuId} className="absolute right-0 top-full z-50 mt-3 max-h-[calc(100dvh-7rem)] w-72 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 text-slate-800 shadow-xl shadow-indigo-950/20">
+                    <div ref={menuPanel} id={menuId} className="navigation-popover absolute right-0 top-full z-50 mt-3 max-h-[calc(100dvh-7rem)] w-72 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 text-slate-800 shadow-xl shadow-indigo-950/20">
                       <div className="mb-2 border-b border-slate-100 px-3 py-3">
                         <p className="truncate text-sm font-semibold">{me.data?.name ?? me.data?.username}</p>
                         <p className="mt-1 text-xs text-slate-500">{isAdmin ? 'Admin Ledger Panel' : 'Staff account'}</p>
                       </div>
                       <nav aria-label="Header navigation" className="space-y-1">
                         {navItems.map((item) => (
-                          <NavLink key={item.to} to={item.to} end={item.end} onClick={() => setMenuOpen(false)} className={({ isActive }) => `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${isActive ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 hover:text-indigo-700'}`}>
+                          <NavLink key={item.to} to={item.to} end={item.end} onClick={() => setMenuOpen(false)} className={({ isActive }) => `app-nav-link flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${isActive ? 'app-nav-link-active bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 hover:text-indigo-700'}`}>
                             <item.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
                             <span>{item.label}</span>
                           </NavLink>
@@ -175,11 +175,11 @@ export function AppLayout() {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-7xl flex-1 p-3 sm:p-5 lg:p-8">
+        <main className="app-main mx-auto w-full max-w-7xl flex-1 p-3 sm:p-5 lg:p-8">
           <Suspense fallback={<PageSkeleton />}>
             <Outlet />
           </Suspense>
-          <footer className="py-8 text-center text-xs text-slate-500">Secure ledger · {settings.data?.business.timezone ?? 'Asia/Kolkata'}</footer>
+          <footer className="app-footer py-8 text-center text-xs text-slate-500"><span className="app-footer-mark" aria-hidden="true">✦</span> Secure ledger <span aria-hidden="true">·</span> {settings.data?.business.timezone ?? 'Asia/Kolkata'}</footer>
         </main>
       </div>
     </div>

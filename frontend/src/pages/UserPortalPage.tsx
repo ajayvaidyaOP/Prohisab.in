@@ -6,7 +6,6 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   History,
-  Loader2,
   Plus,
   ReceiptText,
   Scale,
@@ -38,7 +37,7 @@ const HISTORY_PAGE_SIZE = 100;
 
 /** Portal form controls use the blue-accented style of the staff portal. */
 const portalInput =
-  'block w-full rounded-lg border border-blue-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-100 disabled:text-slate-500';
+  'portal-input block w-full rounded-lg border border-blue-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-100 disabled:text-slate-500';
 
 type StatTone = 'emerald' | 'rose' | 'indigo' | 'violet';
 
@@ -56,8 +55,8 @@ function PortalStatCard({ label, value, icon: Icon, tone }: { label: string; val
     violet: 'text-violet-700',
   }[tone];
   return (
-    <Card className="flex items-center gap-4">
-      <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${chip}`}>
+    <Card className={`portal-stat-card flex items-center gap-4`}>
+      <span className={`portal-stat-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${chip}`}>
         <Icon className="h-5 w-5" aria-hidden="true" />
       </span>
       <div className="min-w-0">
@@ -343,12 +342,13 @@ export default function UserPortalPage() {
 
       {/* New Entry */}
       <Card>
-        <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900">
+        <h2 className="portal-card-heading flex items-center gap-2 text-base font-semibold text-slate-900">
           <span className="flex h-6 w-6 items-center justify-center rounded-md bg-blue-600/10 text-blue-600">
             <Plus className="h-4 w-4" aria-hidden="true" />
           </span>
           New Entry
         </h2>
+        <p className="portal-card-description">Record a deposit or withdrawal against one of your assigned books.</p>
 
         {booksQuery.isError && <div className="mt-3"><ErrorState message="Could not load your assigned books." onRetry={() => void booksQuery.refetch()} /></div>}
         {!booksQuery.isPending && !booksQuery.isError && availableBooks.length === 0 && (
@@ -357,7 +357,7 @@ export default function UserPortalPage() {
           </div>
         )}
 
-        <form onSubmit={onSubmit} className="mt-4 grid grid-cols-1 gap-4">
+        <form onSubmit={onSubmit} className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <Field label="Book" required hint={availableBooks.length === 1 ? "Your only assigned book is selected automatically." : undefined}>
             {(fid) => (
               <select
@@ -456,16 +456,15 @@ export default function UserPortalPage() {
             )}
           </Field>
 
-          <div>
-            <button
+          <div className="flex justify-end sm:col-span-2 xl:col-span-3">
+            <Button
               type="submit"
-              disabled={addMoneyMutation.isPending || booksQuery.isPending || booksQuery.isError || !availableBooks.length}
-              aria-busy={addMoneyMutation.isPending || undefined}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+              loading={addMoneyMutation.isPending}
+              disabled={booksQuery.isPending || booksQuery.isError || !availableBooks.length}
+              className="portal-submit w-full sm:w-auto"
             >
-              {addMoneyMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
-              Submit Entry
-            </button>
+              <Plus className="h-4 w-4" aria-hidden="true" /> Submit Entry
+            </Button>
           </div>
         </form>
       </Card>
