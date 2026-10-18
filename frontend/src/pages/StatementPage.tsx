@@ -105,7 +105,7 @@ export default function StatementPage() {
         <EmptyState title="No entries in this period." />
       ) : (
         <div className="overflow-x-auto">
-          <table className="min-w-full border-collapse text-sm print:text-[11px]">
+          <table className="responsive-table min-w-full border-collapse text-sm print:text-[11px]">
             <thead>
               <tr className="border-b-2 border-slate-400 text-left text-xs uppercase tracking-wide text-slate-600">
                 <th className="py-2 pr-3">Date</th>
@@ -119,17 +119,17 @@ export default function StatementPage() {
             <tbody>
               {d.entries.map((e) => (
                 <tr key={e.id} className="border-b border-slate-200 align-top print-break-inside-avoid">
-                  <td className="whitespace-nowrap py-2 pr-3">{formatDate(e.entryDate)}</td>
-                  <td className="py-2 pr-3">
+                  <td data-label="Date" className="whitespace-nowrap py-2 pr-3">{formatDate(e.entryDate)}</td>
+                  <td data-label="Description" className="py-2 pr-3">
                     {e.typeLabel}
                     {e.isReversal && e.reversalOfId ? ` (reverses #${e.reversalOfId})` : ''}
                     {e.isReversed ? ' [reversed]' : ''}
                     {e.notes && <span className="block text-xs text-slate-600">{e.notes}</span>}
                   </td>
-                  <td className="py-2 pr-3 break-words">{e.referenceNumber ?? ''}</td>
-                  <td className="py-2 pr-3 text-right tabular-nums">{e.direction === 'INCREASE' ? formatPlain(e.amount) : ''}</td>
-                  <td className="py-2 pr-3 text-right tabular-nums">{e.direction === 'DECREASE' ? formatPlain(e.amount) : ''}</td>
-                  <td className="py-2 text-right font-medium tabular-nums">{formatPlain(e.runningBalance)}</td>
+                  <td data-label="Reference" className="py-2 pr-3 break-words">{e.referenceNumber ?? ''}</td>
+                  <td data-label="Increase" className="py-2 pr-3 text-right tabular-nums">{e.direction === 'INCREASE' ? formatPlain(e.amount) : ''}</td>
+                  <td data-label="Decrease" className="py-2 pr-3 text-right tabular-nums">{e.direction === 'DECREASE' ? formatPlain(e.amount) : ''}</td>
+                  <td data-label="Balance" className="py-2 text-right font-medium tabular-nums">{formatPlain(e.runningBalance)}</td>
                 </tr>
               ))}
             </tbody>
@@ -138,9 +138,9 @@ export default function StatementPage() {
                 <td className="py-2 pr-3" colSpan={3}>
                   Totals ({d.totals.entryCount} entries)
                 </td>
-                <td className="py-2 pr-3 text-right tabular-nums">{formatPlain(d.totals.increases)}</td>
-                <td className="py-2 pr-3 text-right tabular-nums">{formatPlain(d.totals.decreases)}</td>
-                <td className="py-2 text-right tabular-nums">{formatPlain(d.closingBalance.amount)}</td>
+                <td data-label="Increase" className="py-2 pr-3 text-right tabular-nums">{formatPlain(d.totals.increases)}</td>
+                <td data-label="Decrease" className="py-2 pr-3 text-right tabular-nums">{formatPlain(d.totals.decreases)}</td>
+                <td data-label="Balance" className="py-2 text-right tabular-nums">{formatPlain(d.closingBalance.amount)}</td>
               </tr>
             </tfoot>
           </table>

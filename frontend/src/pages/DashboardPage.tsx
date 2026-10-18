@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ClipboardList, FileDown, Scale, SlidersHorizontal, TrendingDown, TrendingUp } from 'lucide-react';
+import { ClipboardList, FileDown, Plus, Scale, SlidersHorizontal, TrendingDown, TrendingUp } from 'lucide-react';
 import { api } from '../lib/api';
 import { formatAmount, formatDate } from '../lib/format';
 import type { TransactionFilters } from '../lib/types';
@@ -75,10 +75,13 @@ export default function DashboardPage() {
   const bookLabel = applied.bookId ? books.data?.find((book) => String(book.id) === applied.bookId)?.name ?? 'Selected book' : 'All books';
   const staffLabel = applied.accountId ? users.data?.items.find((user) => String(user.id) === applied.accountId)?.name ?? 'Selected staff' : 'All staff';
 
-  return <div className="space-y-6">
+  return <div className="space-y-4 sm:space-y-6">
     <PageHeader eyebrow="DAILY OVERVIEW" title="Today's Dashboard"
       description={`${formatDate(today)} · ${timezone} · Today's deposits, withdrawals and entries in one place.`}
-      actions={<ButtonLink to="/transactions" variant="secondary">View other dates →</ButtonLink>} />
+      actions={<>
+        <ButtonLink to="/transactions/new" variant="primary"><Plus className="h-4 w-4" /> New Entry</ButtonLink>
+        <ButtonLink to="/transactions" variant="secondary">View other dates →</ButtonLink>
+      </>} />
 
     <Card className="dashboard-filter-card">
       <div className="dashboard-filter-heading">
@@ -86,7 +89,7 @@ export default function DashboardPage() {
         <div><h2>Refine today’s view</h2><p>Filter by book or staff member to focus the ledger.</p></div>
       </div>
       <form onSubmit={apply} className="space-y-3">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
           <Field label="Book">{(id) => <SelectInput id={id} value={draft.bookId} onChange={(event) => setDraft((prev) => ({ ...prev, bookId: event.target.value }))}>
             <option value="">All books</option>
             {(books.data ?? []).map((book) => <option key={book.id} value={book.id}>{book.name}{book.status === 'ARCHIVED' ? ' (Archived)' : ''}</option>)}
@@ -95,9 +98,9 @@ export default function DashboardPage() {
             <option value="">All staff</option>
             {(users.data?.items ?? []).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
           </SelectInput>}</Field>
-          <div className="flex gap-2">
-            <Button type="submit" loading={entries.isFetching}>Apply</Button>
-            {(draft.bookId || draft.accountId || applied.bookId || applied.accountId) && <Button variant="ghost" onClick={() => {
+          <div className="col-span-2 flex gap-2 lg:col-span-1">
+            <Button type="submit" loading={entries.isFetching} className="flex-1 lg:flex-none">Apply</Button>
+            {(draft.bookId || draft.accountId || applied.bookId || applied.accountId) && <Button variant="ghost" className="flex-1 lg:flex-none" onClick={() => {
               setDraft({ bookId: '', accountId: '' }); setApplied({ bookId: '', accountId: '' }); setPage(1); setPdfError(null);
             }}>Reset</Button>}
           </div>
@@ -113,7 +116,7 @@ export default function DashboardPage() {
       : entries.isPending ? <Card><SkeletonRows rows={4} cols={4} /></Card> : <>
         <section aria-label="Today's totals" className="space-y-3">
           <div className="dashboard-section-heading"><div><h2>Today at a glance</h2><p>A live snapshot of your selected ledger.</p></div></div>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:gap-4 xl:grid-cols-4">
             {[
               { label: 'Today’s deposits (+)', value: formatAmount(entries.data.summary.deposits, symbol), icon: TrendingUp, tone: 'emerald' },
               { label: 'Today’s withdrawals (-)', value: formatAmount(entries.data.summary.withdrawals, symbol), icon: TrendingDown, tone: 'rose' },

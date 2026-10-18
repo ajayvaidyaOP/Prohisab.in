@@ -55,13 +55,13 @@ function PortalStatCard({ label, value, icon: Icon, tone }: { label: string; val
     violet: 'text-violet-700',
   }[tone];
   return (
-    <Card className={`portal-stat-card flex items-center gap-4`}>
-      <span className={`portal-stat-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${chip}`}>
-        <Icon className="h-5 w-5" aria-hidden="true" />
+    <Card className={`portal-stat-card flex items-center gap-2 sm:gap-4`}>
+      <span className={`portal-stat-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-xl sm:h-11 sm:w-11 ${chip}`}>
+        <Icon className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden="true" />
       </span>
       <div className="min-w-0">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-        <p className={`mt-0.5 truncate font-mono text-xl font-bold tabular-nums ${valueTone}`}>{value}</p>
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 sm:text-xs">{label}</p>
+        <p className={`mt-0.5 break-words font-mono text-base font-bold tabular-nums sm:text-xl ${valueTone}`}>{value}</p>
       </div>
     </Card>
   );
@@ -322,7 +322,7 @@ export default function UserPortalPage() {
     : availableBooks;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <PageHeader
         title={`Welcome, ${account.name}`}
         description={`Staff ID: ${staffId} · Only your assigned books and entries are available.`}
@@ -331,16 +331,7 @@ export default function UserPortalPage() {
       {successMessage ? <Alert tone="success">{successMessage}</Alert> : null}
       {formError ? <Alert tone="error">{formError}</Alert> : null}
 
-      {/* Account summary */}
-      <p className="text-xs font-medium text-slate-500">All-time business · Deposits and withdrawals</p>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <PortalStatCard label="Total Deposit" value={formatAmount(account.totalUserPaid, symbol)} icon={ArrowDownLeft} tone="emerald" />
-        <PortalStatCard label="Total Withdrawal" value={formatAmount(account.totalAdminPaid, symbol)} icon={ArrowUpRight} tone="rose" />
-        <PortalStatCard label="Net (Deposit - Withdrawal)" value={formatAmount(account.pendingBalance, symbol)} icon={Scale} tone="indigo" />
-        <PortalStatCard label="Total Entries" value={account.entryCount.toLocaleString('en-IN')} icon={ReceiptText} tone="violet" />
-      </div>
-
-      {/* New Entry */}
+      {/* New Entry — first after login so staff can post without scrolling past summaries. */}
       <Card>
         <h2 className="portal-card-heading flex items-center gap-2 text-base font-semibold text-slate-900">
           <span className="flex h-6 w-6 items-center justify-center rounded-md bg-blue-600/10 text-blue-600">
@@ -357,8 +348,17 @@ export default function UserPortalPage() {
           </div>
         )}
 
-        <form onSubmit={onSubmit} className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <Field label="Book" required hint={availableBooks.length === 1 ? "Your only assigned book is selected automatically." : undefined}>
+        <form onSubmit={onSubmit} className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 sm:gap-4 xl:grid-cols-3">
+          <Field
+            label="Book"
+            required
+            hint={availableBooks.length === 1 ? (
+              <>
+                <span className="hidden sm:inline">Your only assigned book is selected automatically.</span>
+                <span className="sm:hidden">Auto-selected</span>
+              </>
+            ) : undefined}
+          >
             {(fid) => (
               <select
                 id={fid}
@@ -378,9 +378,17 @@ export default function UserPortalPage() {
           <Field
             label="Entry date"
             required
-            hint={backDate
-              ? `Back-date permission is active for ${toDisplayDate(backDate)}.`
-              : `Past dates need admin permission. Today is ${toDisplayDate(today)}.`}
+            hint={backDate ? (
+              <>
+                <span className="hidden sm:inline">Back-date permission is active for {toDisplayDate(backDate)}.</span>
+                <span className="sm:hidden">Back date allowed</span>
+              </>
+            ) : (
+              <>
+                <span className="hidden sm:inline">Past dates need admin permission. Today is {toDisplayDate(today)}.</span>
+                <span className="sm:hidden">Today only</span>
+              </>
+            )}
           >
             {(fid) => (
               <select
@@ -456,7 +464,7 @@ export default function UserPortalPage() {
             )}
           </Field>
 
-          <div className="flex justify-end sm:col-span-2 xl:col-span-3">
+          <div className="col-span-2 flex justify-end xl:col-span-3">
             <Button
               type="submit"
               loading={addMoneyMutation.isPending}
@@ -468,6 +476,17 @@ export default function UserPortalPage() {
           </div>
         </form>
       </Card>
+
+      {/* Account summary — below the entry form so the form stays first on phones. */}
+      <section aria-label="All-time business summary" className="space-y-3">
+        <p className="text-xs font-medium text-slate-500">All-time business · Deposits and withdrawals</p>
+        <div className="grid grid-cols-2 gap-2 sm:gap-4 xl:grid-cols-4">
+          <PortalStatCard label="Total Deposit" value={formatAmount(account.totalUserPaid, symbol)} icon={ArrowDownLeft} tone="emerald" />
+          <PortalStatCard label="Total Withdrawal" value={formatAmount(account.totalAdminPaid, symbol)} icon={ArrowUpRight} tone="rose" />
+          <PortalStatCard label="Net (Deposit - Withdrawal)" value={formatAmount(account.pendingBalance, symbol)} icon={Scale} tone="indigo" />
+          <PortalStatCard label="Total Entries" value={account.entryCount.toLocaleString('en-IN')} icon={ReceiptText} tone="violet" />
+        </div>
+      </section>
 
       {/* My History */}
       <Card padded={false} className="overflow-hidden">
@@ -481,32 +500,38 @@ export default function UserPortalPage() {
         </div>
 
         <div className="space-y-4 border-b border-slate-200 px-5 py-4">
-          <form onSubmit={applyFilter} className="flex flex-wrap items-end gap-3">
-            <Field label="From">
-              {(fid) => (
-                <input
-                  id={fid}
-                  type="date"
-                  value={fromInput}
-                  onChange={(e) => { setFromInput(e.target.value); setHistoryDatesInitialized(true); setFilterError(null); }}
-                  className={`${portalInput} w-40`}
-                />
-              )}
-            </Field>
-            <Field label="To">
-              {(fid) => (
-                <input
-                  id={fid}
-                  type="date"
-                  value={toInput}
-                  onChange={(e) => { setToInput(e.target.value); setHistoryDatesInitialized(true); setFilterError(null); }}
-                  className={`${portalInput} w-40`}
-                />
-              )}
-            </Field>
-            <Button type="submit" loading={ledgerQuery.isFetching}>Filter</Button>
-            <Button variant="ghost" onClick={() => { setFromInput(today); setToInput(today); setHistoryDatesInitialized(true); setFilterError(null); }}>Today</Button>
-            <Button variant="ghost" onClick={() => { setFromInput(''); setToInput(''); setHistoryDatesInitialized(true); setFilterError(null); }}>All dates</Button>
+          <form onSubmit={applyFilter} className="flex flex-wrap items-end gap-2 sm:gap-3">
+            <div className="min-w-[130px] flex-1 sm:w-40 sm:flex-none">
+              <Field label="From">
+                {(fid) => (
+                  <input
+                    id={fid}
+                    type="date"
+                    value={fromInput}
+                    onChange={(e) => { setFromInput(e.target.value); setHistoryDatesInitialized(true); setFilterError(null); }}
+                    className={`${portalInput} w-full`}
+                  />
+                )}
+              </Field>
+            </div>
+            <div className="min-w-[130px] flex-1 sm:w-40 sm:flex-none">
+              <Field label="To">
+                {(fid) => (
+                  <input
+                    id={fid}
+                    type="date"
+                    value={toInput}
+                    onChange={(e) => { setToInput(e.target.value); setHistoryDatesInitialized(true); setFilterError(null); }}
+                    className={`${portalInput} w-full`}
+                  />
+                )}
+              </Field>
+            </div>
+            <div className="flex w-full gap-2 sm:w-auto">
+              <Button type="submit" loading={ledgerQuery.isFetching} className="flex-1 sm:flex-none">Filter</Button>
+              <Button variant="ghost" className="flex-1 sm:flex-none" onClick={() => { setFromInput(today); setToInput(today); setHistoryDatesInitialized(true); setFilterError(null); }}>Today</Button>
+              <Button variant="ghost" className="flex-1 sm:flex-none" onClick={() => { setFromInput(''); setToInput(''); setHistoryDatesInitialized(true); setFilterError(null); }}>All dates</Button>
+            </div>
           </form>
           <p className="text-xs text-slate-500">View your own business for any date or date range. Use the same From and To date for one day. This does not grant back-date entry permission.</p>
           {historyDatesChanged && <p className="text-xs font-medium text-amber-700">Dates changed. Click Filter to update your history and totals.</p>}
@@ -523,7 +548,7 @@ export default function UserPortalPage() {
           : ledgerQuery.isError ? <div className="p-5"><ErrorState message={ledgerQuery.error.message} onRetry={() => void ledgerQuery.refetch()} /></div>
           : totals && pagination && <>
         <p className="px-5 pt-4 text-xs text-slate-500">Selected-period business · Deposits and withdrawals count immediately. Historical rejected entries are excluded from amounts. Totals cover the full date range, even when only the latest 500 entries are shown.</p>
-        <div className="grid grid-cols-1 gap-4 border-b border-slate-200 px-5 py-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 border-b border-slate-200 px-5 py-4 sm:gap-4 xl:grid-cols-4">
           <PortalStatCard label="Total Deposit" value={formatAmount(totals.increases, symbol)} icon={ArrowDownLeft} tone="emerald" />
           <PortalStatCard label="Total Withdrawal" value={formatAmount(totals.decreases, symbol)} icon={ArrowUpRight} tone="rose" />
           <PortalStatCard label="Net (Deposit - Withdrawal)" value={formatAmount(totals.net, symbol)} icon={Scale} tone="indigo" />

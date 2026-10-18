@@ -567,8 +567,14 @@ button {
 }
 
 .ledger-table {
-  min-width: 960px;
   font-size: 12px;
+}
+
+/* Wide ledger table only on desktop; smaller screens use stacked cards below. */
+@media (min-width: 960px) {
+  .ledger-table {
+    min-width: 960px;
+  }
 }
 
 .ledger-table thead,
@@ -1273,12 +1279,44 @@ button {
   }
 
   .dashboard-stat-card {
-    min-height: 118px;
-    padding: 16px;
+    min-height: 0;
+    padding: 12px 13px;
+  }
+
+  .dashboard-stat-head {
+    min-height: 0;
+  }
+
+  .dashboard-stat-label {
+    font-size: 9px;
+  }
+
+  .dashboard-stat-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 10px;
+  }
+
+  .dashboard-stat-icon svg {
+    width: 16px;
+    height: 16px;
   }
 
   .dashboard-stat-value {
-    font-size: 22px;
+    margin-top: 6px;
+    font-size: 17px;
+  }
+
+  .portal-stat-card {
+    min-height: 0;
+    padding: 11px !important;
+    border-radius: 13px;
+  }
+
+  .portal-stat-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
   }
 
   .login-page {
@@ -1320,6 +1358,95 @@ button {
     font-size: 8px;
   }
 }
+
+/* Phones/tablets: each row becomes a labelled card — no sideways scrolling. */
+@media screen and (max-width: 959px) {
+  .responsive-table thead {
+    display: none;
+  }
+
+  .responsive-table,
+  .responsive-table tbody,
+  .responsive-table tfoot,
+  .responsive-table tbody tr,
+  .responsive-table tfoot tr,
+  .responsive-table tbody td,
+  .responsive-table tbody th,
+  .responsive-table tfoot td {
+    display: block;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .responsive-table {
+    min-width: 0;
+  }
+
+  .responsive-table tbody tr,
+  .responsive-table tfoot tr {
+    margin: 10px 12px;
+    overflow: hidden;
+    border: 1px solid #dfe8e2;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(25, 50, 40, 0.04);
+  }
+
+  .responsive-table tbody tr:hover {
+    background: #fff;
+  }
+
+  .responsive-table tbody td,
+  .responsive-table tbody th[scope='row'],
+  .responsive-table tfoot td {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 4px 10px;
+    padding: 7px 13px;
+    border: 0;
+    border-top: 1px dashed #e8efea;
+    color: #40534c;
+    font-size: 13px;
+    line-height: 1.5;
+    text-align: right;
+    white-space: normal;
+  }
+
+  .responsive-table tbody tr > :first-child,
+  .responsive-table tfoot tr > :first-child {
+    border-top: 0;
+  }
+
+  .responsive-table tbody td::before,
+  .responsive-table tbody th[scope='row']::before,
+  .responsive-table tfoot td::before {
+    margin-right: auto;
+    color: #7c8c84;
+    font-size: 9px;
+    font-weight: 750;
+    letter-spacing: 0.08em;
+    line-height: 1.6;
+    text-align: left;
+    text-transform: uppercase;
+  }
+
+  .responsive-table tbody td[data-label]::before,
+  .responsive-table tbody th[scope='row'][data-label]::before,
+  .responsive-table tfoot td[data-label]::before {
+    content: attr(data-label);
+  }
+
+  .responsive-table tbody td:not([data-label]),
+  .responsive-table tbody th[scope='row']:not([data-label]),
+  .responsive-table tfoot td:not([data-label]) {
+    justify-content: flex-start;
+    text-align: left;
+  }
+}
+
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

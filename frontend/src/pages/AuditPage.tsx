@@ -94,7 +94,7 @@ export default function AuditPage() {
           : audit.data.items.length === 0 ? <div className="p-5"><Alert tone="info">No activity recorded for this filter.</Alert></div>
           : (
             <div className="overflow-x-auto">
-              <table className="modern-table min-w-full divide-y divide-slate-200 text-sm">
+              <table className="modern-table responsive-table min-w-full divide-y divide-slate-200 text-sm">
                 <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="whitespace-nowrap px-4 py-3">When</th>
@@ -106,15 +106,15 @@ export default function AuditPage() {
                 <tbody className="divide-y divide-slate-100 bg-white">
                   {audit.data.items.map((item) => (
                     <tr key={item.id} className="align-top">
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDateTime(item.createdAt, timezone)}</td>
-                      <td className="px-4 py-3 text-slate-900">
+                      <td data-label="When" className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDateTime(item.createdAt, timezone)}</td>
+                      <td data-label="Activity" className="px-4 py-3 text-slate-900">
                         <span className="font-medium">{ACTION_LABELS[item.action] ?? item.action.replaceAll('_', ' ').toLowerCase()}</span>
                         <AuditDetails details={item.details} />
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                      <td data-label="Record" className="whitespace-nowrap px-4 py-3 text-slate-600">
                         <Badge tone="slate">{item.entityType || '—'}</Badge>{item.entityId ? <span className="ml-2 font-mono text-xs">#{item.entityId}</span> : null}
                       </td>
-                      <td className="px-4 py-3 text-slate-700">{item.actor ?? 'System'}</td>
+                      <td data-label="By" className="px-4 py-3 text-slate-700">{item.actor ?? 'System'}</td>
                     </tr>
                   ))}
                 </tbody>
