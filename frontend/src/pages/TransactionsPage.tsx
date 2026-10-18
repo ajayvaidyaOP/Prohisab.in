@@ -149,7 +149,7 @@ export default function TransactionsPage() {
               {' · '}{books.data?.find((book) => String(book.id) === applied.bookId)?.name ?? (applied.bookId ? 'Selected book' : 'All books')}
               {' · '}{users.data?.items.find((user) => String(user.id) === applied.accountId)?.name ?? (applied.accountId ? 'Selected user' : 'All users')}
             </p>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
               {[
                 { label: 'Total Deposit / Collection (+)', value: formatAmount(query.data.summary.deposits, symbol), style: 'border-t-emerald-500 text-emerald-700' },
                 { label: 'Total Withdrawal (-)', value: formatAmount(query.data.summary.withdrawals, symbol), style: 'border-t-rose-400 text-rose-600' },
@@ -157,7 +157,7 @@ export default function TransactionsPage() {
                 { label: 'Total Entries', value: String(query.data.pagination.total), style: 'border-t-violet-500 text-violet-700' },
               ].map((card) => <Card key={card.label} className={`border-t-[3px] ${card.style}`}>
                 <p className="text-xs font-medium text-slate-500">{card.label}</p>
-                <p className="mt-3 break-words text-2xl font-bold tabular-nums">{card.value}</p>
+                <p className="mt-1.5 break-words text-lg font-bold tabular-nums sm:mt-3 sm:text-2xl">{card.value}</p>
               </Card>)}
             </div>
             <p className="text-xs text-slate-500">Deposits and withdrawals count immediately, across all pages. Historical rejected entries are excluded from amounts. Reversals follow the selected filter.</p>

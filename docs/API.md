@@ -1,4 +1,4 @@
-# deposit.in API (Node/Express + Prisma)
+# Prohisab.in API (Node/Express + Prisma)
 
 All paths are relative to `/api`. JSON is UTF-8; monetary amounts are **decimal strings** (`"1500.50"`), business dates are `YYYY-MM-DD` in the configured time zone, timestamps are ISO-8601 UTC. The browser uses relative `/api` URLs and an HttpOnly `erp_session` cookie; there is no bearer token or local-storage secret.
 

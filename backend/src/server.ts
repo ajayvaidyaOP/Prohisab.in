@@ -9,7 +9,7 @@ async function main() {
     console.log('Using MariaDB WASM demo ledger. For production configure MySQL and run npm run db:setup.');
   }
   const server = createApp().listen(env.PORT, env.HOST, () => {
-    console.log(`deposit.in API listening on http://${env.HOST}:${env.PORT} (${env.NODE_ENV})`);
+    console.log(`Prohisab.in API listening on http://${env.HOST}:${env.PORT} (${env.NODE_ENV})`);
   });
   const shutdown = async (signal: string) => {
     console.log(`Received ${signal}, shutting down...`);

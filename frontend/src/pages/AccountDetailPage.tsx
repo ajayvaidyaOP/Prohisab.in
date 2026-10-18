@@ -235,33 +235,33 @@ export default function AccountDetailPage() {
       ) : null}
 
       {/* 4 Summary Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
         <Card className="border-l-4 border-l-emerald-600">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Deposit (+)</div>
-          <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-emerald-700">
+          <div className="mt-1 font-mono text-lg font-bold tabular-nums sm:mt-2 sm:text-2xl text-emerald-700">
             + {formatAmount(account.totalUserPaid, symbol)}
           </div>
-          <div className="mt-1 text-xs text-slate-500">Total deposits in this user’s ledger</div>
+          <div className="mt-1 hidden text-xs text-slate-500 sm:block">Total deposits in this user’s ledger</div>
         </Card>
 
         <Card className="border-l-4 border-l-rose-600">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Withdrawal (-)</div>
-          <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-rose-700">
+          <div className="mt-1 font-mono text-lg font-bold tabular-nums sm:mt-2 sm:text-2xl text-rose-700">
             - {formatAmount(account.totalAdminPaid, symbol)}
           </div>
-          <div className="mt-1 text-xs text-slate-500">Total withdrawals / payouts</div>
+          <div className="mt-1 hidden text-xs text-slate-500 sm:block">Total withdrawals / payouts</div>
         </Card>
 
         <Card className="border-l-4 border-l-indigo-600">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Net Balance (Deposit - Withdraw)</div>
           <div
-            className={`mt-2 font-mono text-2xl font-bold tabular-nums ${
+            className={`mt-1 font-mono text-lg font-bold tabular-nums sm:mt-2 sm:text-2xl ${
               pendingNum > 0 ? 'text-indigo-700' : pendingNum < 0 ? 'text-rose-700' : 'text-slate-700'
             }`}
           >
             {formatAmount(account.pendingBalance, symbol)}
           </div>
-          <div className="mt-1 text-xs text-slate-500">
+          <div className="mt-1 hidden text-xs text-slate-500 sm:block">
             {pendingNum > 0
               ? 'Available net balance (Deposit − Withdrawal)'
               : pendingNum === 0
@@ -272,8 +272,8 @@ export default function AccountDetailPage() {
 
         <Card className="border-l-4 border-l-blue-500">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Entries</div>
-          <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-blue-700">{account.entryCount}</div>
-          <div className="mt-1 text-xs text-slate-500">Deposits and withdrawals post immediately</div>
+          <div className="mt-1 font-mono text-lg font-bold tabular-nums sm:mt-2 sm:text-2xl text-blue-700">{account.entryCount}</div>
+          <div className="mt-1 hidden text-xs text-slate-500 sm:block">Deposits and withdrawals post immediately</div>
         </Card>
       </div>
 

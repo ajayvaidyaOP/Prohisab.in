@@ -2,7 +2,7 @@
   "name": "deposit-in",
   "version": "1.0.0",
   "private": true,
-  "description": "deposit.in — React/Vite + Express/Prisma (MySQL) deposit/withdrawal ledger",
+  "description": "Prohisab.in — React/Vite + Express/Prisma (MySQL) deposit/withdrawal ledger",
   "type": "module",
   "engines": { "node": ">=20.19.0" },
   "scripts": {

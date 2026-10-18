@@ -85,7 +85,7 @@ export default function LoginPage() {
           <div className="login-brand">
             <span className="login-brand-icon"><Landmark className="h-5 w-5" aria-hidden="true" /></span>
             <span>
-              <span className="login-brand-name">deposit.in</span>
+              <span className="login-brand-name">Prohisab.in</span>
               <span className="login-brand-caption">LEDGER WORKSPACE</span>
             </span>
           </div>
@@ -125,7 +125,7 @@ export default function LoginPage() {
           <div className="login-form-inner">
             <div className="login-mobile-brand">
               <span className="login-brand-icon"><Landmark className="h-5 w-5" aria-hidden="true" /></span>
-              <span className="login-brand-name">deposit.in</span>
+              <span className="login-brand-name">Prohisab.in</span>
             </div>
             <div className="login-heading-block">
               <p className="login-eyebrow">ACCOUNT ACCESS</p>
@@ -228,7 +228,7 @@ export default function LoginPage() {
           </div>
         </section>
       </div>
-      <p className="login-copyright">DEPOSIT.IN <span>·</span> DEPOSITS, WITHDRAWALS, IN BALANCE.</p>
+      <p className="login-copyright">PROHISAB.IN <span>·</span> DEPOSITS, WITHDRAWALS, IN BALANCE.</p>
     </main>
   );
 }

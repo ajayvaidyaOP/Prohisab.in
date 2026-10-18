@@ -56,7 +56,7 @@ export default function BooksPage() {
         {books.data.length === 0 ? (
           <div className="p-6"><EmptyState title="No books yet" description="Add your first book above." /></div>
         ) : (
-          <table className="modern-table min-w-full divide-y divide-slate-200 text-sm">
+          <table className="modern-table responsive-table min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3 text-left">Book ID</th>
@@ -69,13 +69,13 @@ export default function BooksPage() {
             <tbody className="divide-y divide-slate-100 bg-white">
               {books.data.map((b) => (
                 <tr key={b.id}>
-                  <td className="px-4 py-3 font-mono">#{b.id}</td>
-                  <td className="px-4 py-3 font-medium">{b.name}</td>
-                  <td className="px-4 py-3 text-right font-mono">{b.entryCount ?? 0}</td>
-                  <td className="px-4 py-3">
+                  <td data-label="Book ID" className="px-4 py-3 font-mono">#{b.id}</td>
+                  <td data-label="Name" className="px-4 py-3 font-medium">{b.name}</td>
+                  <td data-label="Entries" className="px-4 py-3 text-right font-mono">{b.entryCount ?? 0}</td>
+                  <td data-label="Status" className="px-4 py-3">
                     <Badge tone={b.status === 'ACTIVE' ? 'emerald' : 'slate'}>{b.status}</Badge>
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td data-label="Actions" className="px-4 py-3 text-right">
                     {b.status === 'ACTIVE' ? (
                       <Button variant="secondary" className="!py-1 !px-2 text-xs" loading={archive.isPending} onClick={() => archive.mutate(b.id)}>
                         Delete / Archive
