@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { buildLedgerPdf } from '../lib/pdf.ts';
+import { buildEntriesPdf } from '../lib/pdf.ts';
 import { id, pagination, paging, textParam } from '../lib/validation.ts';
 import { actor, requireAdmin, requireAuth } from '../middleware/auth.ts';
 import { businessToday, businessView } from '../services/settings.ts';
@@ -37,21 +37,27 @@ ledgerRouter.get('/:id/ledger.pdf', requireAdmin, async (req, res) => {
   }
   const result = await getLedger(userId, query, actor(req));
   const business = await businessView(prisma);
-  const pdf = buildLedgerPdf({
-    businessName: business.businessName, accountName: result.account.name,
-    accountCode: result.account.accountCode, fromDate: result.filters.from,
-    toDate: result.filters.to, generatedDate: today,
-    totalCredited: result.totals.increases, totalSettled: result.totals.decreases,
-    // AccountSummary displays the absolute value with a DUE/CREDIT label; the
-    // PDF's "Deposit - Withdraw" field needs the signed financial net.
-    outstandingBalance: result.closingBalance.status === 'CREDIT'
-      ? `-${result.closingBalance.amount}` : result.closingBalance.amount,
-    pendingSubmissionsAmount: result.account.pendingSubmissionsAmount,
-    rows: result.entries.map((row) => ({ id: row.id, entryDate: row.entryDate,
-      description: row.description, paymentMethod: row.paymentMethodLabel ?? '—',
-      status: row.approvalStatus, increase: row.approvalStatus === 'APPROVED' && row.direction === 'INCREASE' ? row.amount : '',
-      decrease: row.approvalStatus === 'APPROVED' && row.direction === 'DECREASE' ? row.amount : '',
-      runningBalance: row.runningBalance })),
+  // Same columns as the on-screen entry table, plus the running balance a statement needs.
+  const pdf = buildEntriesPdf({
+    businessName: business.businessName, currencySymbol: business.currencySymbol,
+    timeZone: business.timezone, generatedDate: today,
+    title: 'USER DEPOSIT & WITHDRAWAL LEDGER',
+    subtitle: `${result.account.name} (${result.account.accountCode})`,
+    fromDate: result.filters.from, toDate: result.filters.to,
+    totals: {
+      deposits: result.totals.increases, withdrawals: result.totals.decreases,
+      // AccountSummary displays the absolute value with a DUE/CREDIT label; the
+      // PDF's "Deposit - Withdraw" field needs the signed financial net.
+      net: result.closingBalance.status === 'CREDIT'
+        ? `-${result.closingBalance.amount}` : result.closingBalance.amount,
+      netLabel: 'CLOSING BALANCE (DEPOSIT - WITHDRAWAL)',
+    },
+    showBalance: true,
+    rows: result.entries.map((row) => ({ createdAt: row.createdAt, entryDate: row.entryDate,
+      bookName: row.bookName, staffName: row.staffName, customerId: row.customerId,
+      typeLabel: row.typeLabel, direction: row.direction, amount: row.amount,
+      bankDetails: row.bankDetails, editedAt: row.editedAt, isReversed: row.isReversed,
+      approvalStatus: row.approvalStatus, runningBalance: row.runningBalance })),
   });
   res.type('application/pdf').attachment(`ledger-user-${userId}.pdf`).send(pdf);
 });

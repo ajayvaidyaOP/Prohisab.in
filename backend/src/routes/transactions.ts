@@ -8,7 +8,7 @@ import { errors } from '../lib/errors.ts';
 import { formatMoney, money, parseMoneyInput } from '../lib/money.ts';
 import { dbDateToIso, isoDateToDbDate, isValidIsoDate } from '../lib/dates.ts';
 import { withIdempotency } from '../lib/idempotency.ts';
-import { buildMultiReportPdf } from '../lib/pdf.ts';
+import { buildEntriesPdf, formatIndian, type EntryPdfRow } from '../lib/pdf.ts';
 import { actor, requireAdmin, requireAuth } from '../middleware/auth.ts';
 import { summary } from '../services/accounts.ts';
 import { combinedReport, type ReportWhere } from '../services/reports.ts';
@@ -73,26 +73,35 @@ transactionsRouter.get('/multi-report', requireAdmin, async (req, res) => {
   if (rows.length > 10_000) throw errors.badRequest('Too many entries for one report. Narrow the date range.');
   res.json(rows.map(serializeTransaction));
 });
+/** Printed rows repeat the on-screen entry table, so a PDF reads like the Entries list. */
+function entryPdfRows(entries: Array<ReturnType<typeof serializeTransaction>>): EntryPdfRow[] {
+  return entries.map((entry) => ({
+    createdAt: entry.createdAt, entryDate: entry.entryDate,
+    bookName: entry.bookName, staffName: entry.account.name, customerId: entry.customerId,
+    typeLabel: entry.typeLabel, direction: entry.direction, amount: entry.amount,
+    bankDetails: entry.bankDetails, editedAt: entry.editedAt,
+    isReversed: entry.isReversed, approvalStatus: entry.approvalStatus,
+  }));
+}
+
 transactionsRouter.get('/multi-report.pdf', requireAdmin, async (req, res) => {
   const report = await combinedReport(multiFilters(req.query));
   const business = await businessView(prisma);
   const bookId = textParam(req.query.bookId);
   const book = bookId ? await prisma.book.findUnique({ where: { id: id(bookId, 'bookId') } }) : null;
-  const pdf = buildMultiReportPdf({ businessName: business.businessName, generatedDate: await businessToday(),
+  const pdf = buildEntriesPdf({ businessName: business.businessName, generatedDate: await businessToday(),
+    currencySymbol: business.currencySymbol, timeZone: business.timezone,
     title: 'COMBINED STAFF COLLECTION REPORT',
-    summaryLine: `Approved collection: ${report.summary.deposits} | Withdrawals: ${report.summary.withdrawals} | Period net: ${report.summary.net}`,
-    filterLine: `Pending: ${report.summary.pendingEntries} / ${report.summary.pendingAmount} | Rejected: ${report.summary.rejectedEntries} (excluded) | ${book?.name ?? 'All books'} | Staff: ${report.staffSummary.map((row) => row.name).join(', ')}`,
+    summaryLine: `Approved collection: ${formatIndian(report.summary.deposits)} | Withdrawals: ${formatIndian(report.summary.withdrawals)} | Period net: ${formatIndian(report.summary.net)}`,
+    filterLine: `Pending: ${report.summary.pendingEntries} / ${formatIndian(report.summary.pendingAmount)} | Rejected: ${report.summary.rejectedEntries} (excluded) | ${book?.name ?? 'All books'} | Staff: ${report.staffSummary.map((row) => row.name).join(', ')}`,
+    totals: { deposits: report.summary.deposits, withdrawals: report.summary.withdrawals,
+      net: report.summary.net, netLabel: 'PERIOD NET (DEPOSIT - WITHDRAWAL)' },
     comparisons: [
       { title: 'STAFF-WISE SUMMARY', rows: report.staffSummary.map((row) => ({ ...row, label: row.name })) },
       { title: 'BOOK-WISE SUMMARY', rows: report.bookSummary.map((row) => ({ ...row, label: row.name })) },
     ],
     fromDate: textParam(req.query.from) ?? null, toDate: textParam(req.query.to) ?? null,
-    rows: report.rows.map((entry) => ({ entryDate: entry.entryDate,
-      staff: entry.account.name, book: entry.bookName ?? 'No book assigned',
-      type: `${entry.direction === 'INCREASE' ? '+' : '-'} ${entry.typeLabel}`, amount: entry.amount,
-      status: entry.approvalStatus, description: entry.description,
-      customerId: entry.customerId ?? '-', bankDetails: entry.bankDetails ?? '-',
-    })),
+    rows: entryPdfRows(report.rows),
   });
   res.type('application/pdf').attachment('multi-user-history.pdf').send(pdf);
 });
@@ -107,17 +116,14 @@ transactionsRouter.get('/report.pdf', requireAdmin, async (req, res) => {
   const business = await businessView(prisma);
   const book = textParam(req.query.bookId) ? await prisma.book.findUnique({ where: { id: id(req.query.bookId, 'bookId') } }) : null;
   const user = textParam(req.query.accountId) ? await prisma.user.findUnique({ where: { id: id(req.query.accountId, 'accountId') } }) : null;
-  const pdf = buildMultiReportPdf({ businessName: business.businessName, generatedDate: await businessToday(),
+  const pdf = buildEntriesPdf({ businessName: business.businessName, generatedDate: await businessToday(),
+    currencySymbol: business.currencySymbol, timeZone: business.timezone,
     title: 'ENTRIES & COLLECTION REPORT',
-    summaryLine: `Approved collection: ${totals.deposits} | Withdrawals: ${totals.withdrawals} | Net: ${totals.net} | Approved entries: ${totals.approvedEntries}`,
+    summaryLine: `Approved collection: ${formatIndian(totals.deposits)} | Withdrawals: ${formatIndian(totals.withdrawals)} | Net: ${formatIndian(totals.net)} | Approved entries: ${totals.approvedEntries}`,
     filterLine: `${book?.name ?? 'All books'} | ${user?.name ?? 'All users'} | ${textParam(req.query.type) ?? 'All types'} | ${textParam(req.query.approvalStatus) ?? 'All statuses'} | Search: ${textParam(req.query.search) ?? '-'} | Reversals: ${req.query.includeReversals === 'false' ? 'hidden' : 'included'}`,
+    totals: { deposits: totals.deposits, withdrawals: totals.withdrawals, net: totals.net },
     fromDate: textParam(req.query.from) ?? null, toDate: textParam(req.query.to) ?? null,
-    rows: rows.map(serializeTransaction).map((entry) => ({ entryDate: entry.entryDate,
-      staff: entry.account.name, book: entry.bookName ?? 'No book assigned',
-      type: `${entry.direction === 'INCREASE' ? '+' : '-'} ${entry.typeLabel}`, amount: entry.amount,
-      status: entry.approvalStatus, description: entry.description,
-      customerId: entry.customerId ?? '-', bankDetails: entry.bankDetails ?? '-',
-    })),
+    rows: entryPdfRows(rows.map(serializeTransaction)),
   });
   res.type('application/pdf').attachment('entries-collection.pdf').send(pdf);
 });
