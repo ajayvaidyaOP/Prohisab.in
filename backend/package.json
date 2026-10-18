@@ -2,7 +2,7 @@
   "name": "deposit-in-backend",
   "version": "1.0.0",
   "private": true,
-  "description": "deposit.in API — Express + Prisma on the existing MySQL ledger schema",
+  "description": "Prohisab.in API — Express + Prisma on the existing MySQL ledger schema",
   "type": "module",
   "engines": {
     "node": ">=20.19.0"

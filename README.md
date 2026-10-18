@@ -1,4 +1,4 @@
-# deposit.in — Deposit & Withdrawal Ledger
+# Prohisab.in — Deposit & Withdrawal Ledger
 
 A staff/admin ledger with **PIN or password login**, book access permissions, one-day back-date grants, direct entry posting, Edit/Delete actions, reversals, dashboards, audit history, and PDF/CSV reports. **Deposits − withdrawals = net balance**; both staff and admin entries count immediately. Historical rejected entries remain excluded. Amounts are MySQL `DECIMAL(15,2)` and travel over the API as decimal strings.
 
