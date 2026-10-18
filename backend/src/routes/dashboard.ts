@@ -13,6 +13,7 @@ dashboardRouter.get('/summary.pdf', async (req, res) => {
   const business = await businessView(prisma);
   const pdf = buildAllUsersSummaryPdf({
     businessName: business.businessName, generatedDate: data.today,
+    currencySymbol: business.currencySymbol,
     totalDeposit: data.userLedgerTotals.totalUserPaid,
     totalWithdrawal: data.userLedgerTotals.totalAdminPaid,
     totalNetBalance: data.userLedgerTotals.totalPending,

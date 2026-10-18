@@ -23,6 +23,12 @@ function write(path: string, auth: string, body: unknown, key?: string) {
   return req.send(body);
 }
 
+/** Column headings the Entries screen shows; every entry PDF must print the same ones. */
+const ENTRY_COLUMNS = ['TIME (IST)', 'BOOK', 'STAFF', 'CUSTOMER ID', 'TYPE', 'AMOUNT',
+  'BANK ACCOUNT', 'EDIT STATUS'];
+/** How a label appears inside a PDF content stream: (text) with escaped brackets. */
+const drawn = (label: string) => `(${label.replace(/\(/g, '\\(').replace(/\)/g, '\\)')})`;
+
 before(async () => { await seedDatabase(prisma); });
 after(async () => { await prisma.$disconnect(); await demoDatabase?.close(); });
 
@@ -200,6 +206,14 @@ test('approval, precise decimals, filtered reports, PDF/CSV and reversal', async
     assert.equal(response.status, 200, uri);
     assert.match(response.headers['content-type'], /application\/pdf/);
     assert.equal((response.body as Buffer).subarray(0, 8).toString(), '%PDF-1.4');
+    // Every entry export prints the same columns as the on-screen entry table.
+    if (uri.endsWith('summary.pdf')) continue;
+    const printed = (response.body as Buffer).toString('latin1');
+    for (const column of ENTRY_COLUMNS) {
+      assert.ok(printed.includes(drawn(column)), `${uri} is missing the ${column} column`);
+    }
+    // A single-user statement keeps its running balance next to those columns.
+    assert.equal(printed.includes(drawn('BALANCE')), uri.includes('ledger.pdf'), uri);
   }
   const csv = await request(app).get(`/api/accounts/${staffId}/ledger.csv`).set('Cookie', admin);
   assert.equal(csv.status, 200);
@@ -519,6 +533,11 @@ test('entries report applies dates/books/staff and totals the entire selection, 
   assert.match(contents, /Entries: 2/);
   assert.match(contents, /Customer-Report/);
   assert.match(contents, /Report Bank 901/);
+  // Entry-table format: Time (IST) timestamps, Edit status and no separate description column.
+  for (const column of ENTRY_COLUMNS) assert.ok(contents.includes(drawn(column)), column);
+  assert.match(contents, /\(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\)/);
+  assert.ok(contents.includes(drawn('Original')));
+  assert.ok(!contents.includes(drawn('DESCRIPTION')), 'report PDF should match the entry table columns');
   assert.equal((await get(`from=${later}&to=${earlier}`)).status, 400);
   assert.equal((await get('from=2026-02-30')).status, 400);
   assert.equal((await get('bookId=invalid')).status, 400);
